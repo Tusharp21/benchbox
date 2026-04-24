@@ -20,9 +20,10 @@ from benchbox_gui.views.apps import AppsView
 from benchbox_gui.views.bench_detail import BenchDetailView
 from benchbox_gui.views.bench_list import BenchListView
 from benchbox_gui.views.install import InstallerView
+from benchbox_gui.views.logs_view import LogsView
+from benchbox_gui.views.settings_view import SettingsView
 from benchbox_gui.views.sites import SitesView
 from benchbox_gui.views.stats_banner import StatsBanner
-from benchbox_gui.views.stubs import LogsView, SettingsView
 
 # (label, key, icon name) — icons resolved from benchbox_gui.resources.icons.
 _SIDEBAR_ENTRIES: tuple[tuple[str, str, str], ...] = (

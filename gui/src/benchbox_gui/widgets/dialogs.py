@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from benchbox_core.bench import DEFAULT_FRAPPE_BRANCH, DEFAULT_PYTHON_BIN
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -24,6 +25,8 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -119,6 +122,11 @@ class NewSiteValues:
 class NewSiteDialog(QDialog):
     """Gathers the args for ``core.site.create_site``.
 
+    ``apps_by_bench`` (optional) maps each bench path to the apps available
+    *in that bench*. When provided, the dialog shows a checkable list of
+    apps so the user picks by clicking rather than typing a
+    comma-separated string; ``frappe`` is hidden (always installed).
+
     Does NOT prompt for the MariaDB root password — that's loaded from the
     credentials store by the caller (installer.py has the same pattern).
     """
@@ -129,10 +137,12 @@ class NewSiteDialog(QDialog):
         *,
         parent: QWidget | None = None,
         preselect: Path | None = None,
+        apps_by_bench: dict[Path, list[str]] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("New site")
         self.setMinimumWidth(520)
+        self._apps_by_bench = apps_by_bench or {}
 
         self._bench = QComboBox()
         for path in bench_paths:
@@ -141,6 +151,7 @@ class NewSiteDialog(QDialog):
             idx = self._bench.findData(preselect)
             if idx >= 0:
                 self._bench.setCurrentIndex(idx)
+        self._bench.currentIndexChanged.connect(self._reload_app_choices)
 
         self._name = QLineEdit()
         self._name.setPlaceholderText("site1.local")
@@ -149,8 +160,8 @@ class NewSiteDialog(QDialog):
         self._admin.setEchoMode(QLineEdit.EchoMode.Password)
         self._admin.setPlaceholderText("Administrator password for the new site")
 
-        self._apps = QLineEdit()
-        self._apps.setPlaceholderText("(optional) comma-separated: erpnext, hrms")
+        self._apps_list = QListWidget()
+        self._apps_list.setMinimumHeight(120)
 
         self._set_default = QCheckBox("Set as default site")
 
@@ -159,7 +170,7 @@ class NewSiteDialog(QDialog):
         form.addRow("Bench", self._bench)
         form.addRow("Site name", self._name)
         form.addRow("Admin password", self._admin)
-        form.addRow("Install apps", self._apps)
+        form.addRow("Install apps", self._apps_list)
         form.addRow("", self._set_default)
 
         buttons = QDialogButtonBox(
@@ -182,6 +193,21 @@ class NewSiteDialog(QDialog):
             self._bench.setEnabled(False)
             self._bench.addItem("(no benches found — create one first)")
 
+        self._reload_app_choices()
+
+    def _reload_app_choices(self) -> None:
+        self._apps_list.clear()
+        bench = self._bench.currentData()
+        if bench is None:
+            return
+        # frappe is implicit on every site; hide it from the install list.
+        apps = [a for a in self._apps_by_bench.get(bench, []) if a != "frappe"]
+        for app in apps:
+            item = QListWidgetItem(app)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            self._apps_list.addItem(item)
+
     def _try_accept(self) -> None:
         if not self._name.text().strip():
             QMessageBox.warning(self, "Missing name", "Site name is required.")
@@ -195,12 +221,16 @@ class NewSiteDialog(QDialog):
         self.accept()
 
     def values(self) -> NewSiteValues:
-        apps_raw = [a.strip() for a in self._apps.text().split(",") if a.strip()]
+        checked: list[str] = []
+        for row in range(self._apps_list.count()):
+            item = self._apps_list.item(row)
+            if item is not None and item.checkState() == Qt.CheckState.Checked:
+                checked.append(item.text())
         return NewSiteValues(
             bench_path=self._bench.currentData(),
             site_name=self._name.text().strip(),
             admin_password=self._admin.text(),
-            install_apps=tuple(apps_raw),
+            install_apps=tuple(checked),
             set_default=self._set_default.isChecked(),
         )
 
