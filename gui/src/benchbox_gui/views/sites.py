@@ -1,4 +1,4 @@
-"""Sites tab — cross-bench site list + new/drop actions."""
+"""Sites tab — cross-bench site cards with typed-name drop confirmation."""
 
 from __future__ import annotations
 
@@ -10,18 +10,21 @@ from benchbox_core import site as core_site
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QMessageBox,
     QProgressDialog,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-from benchbox_gui.widgets.dialogs import NewSiteDialog, NewSiteValues, confirm
+from benchbox_gui.widgets.dialogs import (
+    NewSiteDialog,
+    NewSiteValues,
+    TypedNameConfirmDialog,
+)
+from benchbox_gui.widgets.site_card import SiteCard
 from benchbox_gui.workers import OperationWorker
 
 
@@ -32,13 +35,14 @@ class _Row:
 
 
 class SitesView(QWidget):
-    """Lists every site across every discovered bench + mutation actions."""
+    """Lists every site across every discovered bench as cards."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._worker: OperationWorker | None = None
         self._progress: QProgressDialog | None = None
         self._rows: list[_Row] = []
+        self._bench_cache: dict[Path, introspect.BenchInfo] = {}
 
         title = QLabel("Sites")
         title.setProperty("role", "h1")
@@ -53,9 +57,6 @@ class SitesView(QWidget):
         new_site.setProperty("role", "primary")
         new_site.clicked.connect(self._on_new_site)
 
-        drop_site = QPushButton("Drop selected")
-        drop_site.clicked.connect(self._on_drop_site)
-
         header_text = QVBoxLayout()
         header_text.setSpacing(2)
         header_text.addWidget(title)
@@ -64,21 +65,23 @@ class SitesView(QWidget):
         header = QHBoxLayout()
         header.addLayout(header_text, 1)
         header.addWidget(refresh, 0, Qt.AlignmentFlag.AlignTop)
-        header.addWidget(drop_site, 0, Qt.AlignmentFlag.AlignTop)
         header.addWidget(new_site, 0, Qt.AlignmentFlag.AlignTop)
 
-        self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["bench", "site", "db name", "apps"])
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._cards_container = QWidget()
+        self._cards_layout = QVBoxLayout(self._cards_container)
+        self._cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._cards_layout.setSpacing(10)
+        self._cards_layout.addStretch(1)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setWidget(self._cards_container)
+        self._scroll.setFrameShape(self._scroll.Shape.NoFrame)
 
         self._empty = QLabel(
             "<p>No sites yet.</p>"
-            "<p style='color:#a9a9c4;'>Create one with <b>+ New site</b> after you have "
-            "a bench.</p>"
+            "<p style='color:#a9a9c4;'>Create one with <b>+ New site</b> after "
+            "you have a bench.</p>"
         )
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty.setWordWrap(True)
@@ -87,52 +90,52 @@ class SitesView(QWidget):
         root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(14)
         root.addLayout(header)
-        root.addWidget(self._table, 1)
+        root.addWidget(self._scroll, 1)
         root.addWidget(self._empty)
 
         self.refresh()
 
     # --- data --------------------------------------------------------
 
+    @property
+    def card_count(self) -> int:
+        count = 0
+        for i in range(self._cards_layout.count()):
+            item = self._cards_layout.itemAt(i)
+            if item is not None and item.widget() is not None:
+                count += 1
+        return count
+
+    def _clear_cards(self) -> None:
+        while self._cards_layout.count() > 0:
+            item = self._cards_layout.takeAt(0)
+            if item is None:
+                break
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._cards_layout.addStretch(1)
+
     def _load_rows(self) -> list[_Row]:
-        rows: list[_Row] = []
-        for bench_path in discovery.discover_benches():
-            info = introspect.introspect(bench_path)
-            for site in info.sites:
-                rows.append(_Row(bench_path=info.path, site=site))
-        return rows
-
-    def refresh(self) -> None:
-        self._rows = self._load_rows()
-        self._table.setRowCount(0)
-        for row in self._rows:
-            r = self._table.rowCount()
-            self._table.insertRow(r)
-            self._table.setItem(r, 0, QTableWidgetItem(str(row.bench_path)))
-            self._table.setItem(r, 1, QTableWidgetItem(row.site.name))
-            self._table.setItem(r, 2, QTableWidgetItem(row.site.db_name or "-"))
-            self._table.setItem(
-                r,
-                3,
-                QTableWidgetItem(", ".join(row.site.installed_apps) or "-"),
-            )
-        has_rows = bool(self._rows)
-        self._table.setVisible(has_rows)
-        self._empty.setVisible(not has_rows)
-
-    def _discovered_bench_paths(self) -> list[Path]:
+        self._bench_cache = {p: introspect.introspect(p) for p in discovery.discover_benches()}
         return [
-            info.path for info in (introspect.introspect(p) for p in discovery.discover_benches())
+            _Row(bench_path=info.path, site=site)
+            for info in self._bench_cache.values()
+            for site in info.sites
         ]
 
-    def _selected_row(self) -> _Row | None:
-        selection = self._table.selectedItems()
-        if not selection:
-            return None
-        idx = selection[0].row()
-        if 0 <= idx < len(self._rows):
-            return self._rows[idx]
-        return None
+    def refresh(self) -> None:
+        self._clear_cards()
+        self._rows = self._load_rows()
+        for row in self._rows:
+            card = SiteCard(row.bench_path, row.site)
+            card.drop_requested.connect(self._on_drop_site)
+            self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
+
+        has_rows = bool(self._rows)
+        self._scroll.setVisible(has_rows)
+        self._empty.setVisible(not has_rows)
 
     # --- actions -----------------------------------------------------
 
@@ -147,11 +150,17 @@ class SitesView(QWidget):
         return pw
 
     def _on_new_site(self) -> None:
-        benches = self._discovered_bench_paths()
+        if not self._bench_cache:
+            self._bench_cache = {p: introspect.introspect(p) for p in discovery.discover_benches()}
+        benches = list(self._bench_cache.keys())
         if not benches:
             QMessageBox.information(self, "No benches", "Create a bench first.")
             return
-        dialog = NewSiteDialog(benches, parent=self)
+        dialog = NewSiteDialog(
+            benches,
+            parent=self,
+            apps_by_bench={p: [a.name for a in i.apps] for p, i in self._bench_cache.items()},
+        )
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
         pw = self._ensure_password()
@@ -174,30 +183,33 @@ class SitesView(QWidget):
 
         self._spawn(op, success_msg=f"Site {values.site_name!r} created.")
 
-    def _on_drop_site(self) -> None:
-        row = self._selected_row()
-        if row is None:
-            QMessageBox.information(self, "No selection", "Select a site first.")
-            return
-        if not confirm(
-            self,
-            "Drop site",
-            f"Drop <b>{row.site.name}</b> from {row.bench_path}?<br>This deletes the site's DB.",
-            destructive=True,
-        ):
+    def _on_drop_site(self, bench_path: Path, site_name: str) -> None:
+        """Triggered from a SiteCard's Drop button — typed-name confirm."""
+        dialog = TypedNameConfirmDialog(
+            site_name,
+            title="Drop site",
+            message=(
+                f"This permanently deletes <b>{site_name}</b> on "
+                f"<code>{bench_path}</code>, including its MariaDB database. "
+                "This can't be undone."
+            ),
+            action_label="Drop site",
+            parent=self,
+        )
+        if dialog.exec() != dialog.DialogCode.Accepted:
             return
         pw = self._ensure_password()
         if pw is None:
             return
-        self._start_drop(row, pw)
+        self._start_drop(bench_path, site_name, pw)
 
-    def _start_drop(self, row: _Row, db_root: str) -> None:
-        self._open_progress(f"Dropping {row.site.name}…")
+    def _start_drop(self, bench_path: Path, site_name: str, db_root: str) -> None:
+        self._open_progress(f"Dropping {site_name}…")
 
         def op() -> core_site.SiteDropResult:
-            return core_site.drop_site(row.bench_path, row.site.name, db_root_password=db_root)
+            return core_site.drop_site(bench_path, site_name, db_root_password=db_root)
 
-        self._spawn(op, success_msg=f"Site {row.site.name!r} dropped.")
+        self._spawn(op, success_msg=f"Site {site_name!r} dropped.")
 
     # --- worker plumbing --------------------------------------------
 

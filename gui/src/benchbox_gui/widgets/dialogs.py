@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -452,8 +453,73 @@ def confirm(parent: QWidget, title: str, message: str, *, destructive: bool = Fa
     return box.exec() == QMessageBox.StandardButton.Yes
 
 
+# --- TypedNameConfirmDialog --------------------------------------------
+
+
+class TypedNameConfirmDialog(QDialog):
+    """GitHub-style destructive-action confirm.
+
+    Shows a warning message, asks the user to type the exact ``name`` of
+    the thing they're about to destroy, and keeps the destructive button
+    disabled until the input matches. Forces a real moment of "yes I mean
+    this one" instead of a muscle-memory Yes click.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        title: str,
+        message: str,
+        action_label: str = "Delete",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(460)
+        self._name = name
+
+        body = QLabel(message)
+        body.setWordWrap(True)
+        body.setTextFormat(Qt.TextFormat.RichText)
+
+        prompt = QLabel(f"Type <b>{name}</b> to confirm.")
+        prompt.setWordWrap(True)
+        prompt.setTextFormat(Qt.TextFormat.RichText)
+
+        self._input = QLineEdit()
+        self._input.setPlaceholderText(name)
+        self._input.textChanged.connect(self._on_input_changed)
+
+        self._action_btn = QPushButton(action_label)
+        self._action_btn.setProperty("role", "danger")
+        self._action_btn.setEnabled(False)
+        self._action_btn.clicked.connect(self.accept)
+
+        cancel = QPushButton("Cancel")
+        cancel.setProperty("role", "ghost")
+        cancel.clicked.connect(self.reject)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        buttons.addWidget(cancel)
+        buttons.addWidget(self._action_btn)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 20, 20, 16)
+        root.setSpacing(12)
+        root.addWidget(body)
+        root.addWidget(prompt)
+        root.addWidget(self._input)
+        root.addLayout(buttons)
+
+    def _on_input_changed(self, text: str) -> None:
+        self._action_btn.setEnabled(text == self._name)
+
+
 # Kept for convenience — some modules import from here.
 __all__ = [
+    "COMMON_FRAPPE_REFS",
     "GetAppDialog",
     "GetAppValues",
     "InstallAppDialog",
@@ -462,5 +528,6 @@ __all__ = [
     "NewBenchValues",
     "NewSiteDialog",
     "NewSiteValues",
+    "TypedNameConfirmDialog",
     "confirm",
 ]
