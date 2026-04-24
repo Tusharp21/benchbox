@@ -17,23 +17,51 @@ Standard Frappe install is painful: MariaDB charset gotchas, the wkhtmltopdf pat
 
 ## Install
 
-> Not yet published. Once released:
+Ubuntu 22.04 / 24.04, one command:
 
 ```bash
-# CLI (one-liner)
 curl -sSL https://raw.githubusercontent.com/<owner>/benchbox/main/scripts/install.sh | bash
-
-# GUI
-# Download the latest .AppImage or .deb from GitHub Releases.
 ```
+
+That drops a per-user venv at `~/.local/share/benchbox`, creates
+`benchbox` and `benchbox-gui` on your `PATH`, and registers a
+`.desktop` entry so **benchbox shows up in your app launcher** with an
+icon. You can launch the GUI by clicking it or by running
+`benchbox-gui` in a terminal.
+
+If `~/.local/bin` isn't on your `PATH` yet, add this to `~/.bashrc`:
+
+```bash
+export PATH="${HOME}/.local/bin:${PATH}"
+```
+
+### Uninstall
+
+```bash
+benchbox-uninstall
+```
+
+Leaves `~/.benchbox/` (logs + saved credentials) untouched —
+`rm -rf ~/.benchbox` if you want that gone too.
+
+### Installing from a fork / a specific branch
+
+```bash
+BENCHBOX_REPO=https://github.com/you/benchbox.git \
+BENCHBOX_REF=some-branch \
+  curl -sSL https://raw.githubusercontent.com/you/benchbox/some-branch/scripts/install.sh | bash
+```
+
+Signed `.deb` + `.AppImage` packages are planned for Phase 6.
 
 ## Repo layout
 
 ```
 core/     # Python library — all install + management logic
 cli/      # Typer-based CLI frontend
-gui/      # Tauri desktop app (Rust + web frontend)
-scripts/  # install.sh bootstrap
+gui/      # PySide6 desktop app
+scripts/  # install.sh / uninstall.sh bootstrap
+assets/   # app icon
 tests/    # Docker-based end-to-end tests
 docs/
 ```
@@ -46,7 +74,7 @@ docs/
 - [x] **Phase 3** — Core: bench/site/app operations
 - [x] **Phase 4** — CLI frontend
 - [x] **Phase 5** — Desktop GUI (PySide6 — sidebar, stats banner, bench list/detail, installer) *(core views functional; sites/apps views still stub to the CLI; needs visual polish pass)*
-- [ ] **Phase 6** — Release pipeline (signed `.deb` + `.AppImage`)
+- [ ] **Phase 6** — Release pipeline *(install.sh bootstrap + `.desktop` integration landed; signed `.deb` + `.AppImage` still pending)*
 - [ ] **Phase 7** — E2E tests, macOS support
 
 ## Contributing
