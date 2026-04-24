@@ -17,7 +17,7 @@ QWidget {
     background-color: #fafbfc;
     color: #1f2328;
     font-family: "Inter", "Segoe UI", "Ubuntu", "Roboto", sans-serif;
-    font-size: 10pt;
+    font-size: 11pt;
 }
 
 QMainWindow {
@@ -27,13 +27,13 @@ QMainWindow {
 /* ---------- typography ---------- */
 
 QLabel[role="h1"] {
-    font-size: 20pt;
+    font-size: 22pt;
     font-weight: 700;
     color: #1f2328;
     padding: 0px;
 }
 QLabel[role="h2"] {
-    font-size: 14pt;
+    font-size: 15pt;
     font-weight: 600;
     color: #1f2328;
 }
@@ -46,7 +46,7 @@ QLabel[role="kbd"] {
     padding: 2px 6px;
     border-radius: 4px;
     font-family: "JetBrains Mono", "Fira Code", "Courier New", monospace;
-    font-size: 9pt;
+    font-size: 10pt;
 }
 
 /* ---------- sidebar ---------- */
@@ -90,6 +90,17 @@ QFrame#StatPill QLabel {
     background: transparent;
 }
 
+/* ---------- filter toolbar ---------- */
+
+QFrame#FilterBar {
+    background-color: #ffffff;
+    border: 1px solid #d0d7de;
+    border-radius: 10px;
+}
+QFrame#FilterBar QLabel {
+    background: transparent;
+}
+
 /* ---------- cards ---------- */
 
 QFrame#Card, QFrame#BenchCard, QFrame#SiteCard, QFrame#AppCard {
@@ -105,16 +116,16 @@ QFrame#BenchCard:hover, QFrame#SiteCard:hover, QFrame#AppCard:hover {
 QLabel[role="badge"] {
     background-color: #eaeef2;
     color: #1f2328;
-    padding: 3px 9px;
-    border-radius: 9px;
-    font-size: 9pt;
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 10pt;
 }
 QLabel[role="badge-accent"] {
     background-color: #8250df;
     color: #ffffff;
-    padding: 3px 9px;
-    border-radius: 9px;
-    font-size: 9pt;
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 10pt;
     font-weight: 600;
 }
 
@@ -200,14 +211,31 @@ QTableWidget::item {
 
 QLineEdit, QComboBox, QSpinBox {
     background-color: #ffffff;
-    border: 1px solid #d0d7de;
+    border: 1px solid #b1b8c0;
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 8px 12px;
+    min-height: 22px;
     color: #1f2328;
     selection-background-color: #ddf4ff;
 }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
     border: 1px solid #8250df;
+}
+QLineEdit:disabled, QComboBox:disabled {
+    background-color: #f6f8fa;
+    color: #8c959f;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 22px;
+}
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    color: #1f2328;
+    border: 1px solid #d0d7de;
+    selection-background-color: #ddf4ff;
+    selection-color: #1f2328;
+    outline: 0;
 }
 QCheckBox {
     spacing: 8px;
@@ -285,11 +313,42 @@ QGroupBox::title {
     subcontrol-position: top left;
     padding: 0 6px;
     color: #656d76;
-    font-size: 9pt;
+    font-size: 10pt;
 }
 
 /* ---------- dialogs ---------- */
 
-QMessageBox, QInputDialog, QDialog {
+QDialog {
     background-color: #ffffff;
+}
+QDialog QLabel {
+    background: transparent;
+}
+QMessageBox, QInputDialog {
+    background-color: #ffffff;
+}
+QMessageBox QLabel, QInputDialog QLabel {
+    background: transparent;
+    color: #1f2328;
+}
+
+/* ---------- list widget (dialogs) ---------- */
+
+QListWidget {
+    background-color: #ffffff;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    padding: 4px;
+}
+QListWidget::item {
+    padding: 6px 8px;
+    border-radius: 4px;
+    color: #1f2328;
+}
+QListWidget::item:hover {
+    background-color: #f6f8fa;
+}
+QListWidget::item:selected {
+    background-color: #ddf4ff;
+    color: #1f2328;
 }

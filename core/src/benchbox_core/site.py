@@ -58,6 +58,13 @@ class SiteDropResult:
     command: CommandResult
 
 
+@dataclass(frozen=True)
+class SiteRestoreResult:
+    """Outcome of ``restore_site``."""
+
+    command: CommandResult
+
+
 def _site_dir(bench_path: Path, site_name: str) -> Path:
     return bench_path / "sites" / site_name
 
@@ -151,3 +158,57 @@ def drop_site(
         raise SiteOperationError("drop-site", result)
 
     return SiteDropResult(command=result)
+
+
+def restore_site(
+    bench_path: Path,
+    site_name: str,
+    sql_path: Path,
+    *,
+    db_root_password: str,
+    admin_password: str | None = None,
+    with_public_files: Path | None = None,
+    with_private_files: Path | None = None,
+    force: bool = False,
+    runner: CommandRunner | None = None,
+) -> SiteRestoreResult:
+    """Run ``bench --site <name> restore <sql>`` inside ``bench_path``.
+
+    ``sql_path`` is the SQL or .sql.gz dump produced by ``bench backup``.
+    ``with_public_files`` / ``with_private_files`` are the corresponding
+    file-tarballs; both are optional because backups without files are
+    valid. Raises :class:`SiteNotFoundError` when not in dry-run and the
+    site dir is missing (bench would just error out anyway; we fail fast
+    with a clearer message).
+    """
+    active = runner if runner is not None else CommandRunner()
+
+    if not active.dry_run and not _site_dir(bench_path, site_name).is_dir():
+        raise SiteNotFoundError(f"site {site_name!r} not found under {bench_path}")
+    if not active.dry_run and not Path(sql_path).is_file():
+        raise FileNotFoundError(f"backup file not found: {sql_path}")
+
+    argv: list[str] = [
+        "bench",
+        "--site",
+        site_name,
+        "restore",
+        str(sql_path),
+        "--db-root-password",
+        db_root_password,
+    ]
+    if admin_password:
+        argv.extend(["--admin-password", admin_password])
+    if with_public_files is not None:
+        argv.extend(["--with-public-files", str(with_public_files)])
+    if with_private_files is not None:
+        argv.extend(["--with-private-files", str(with_private_files)])
+    if force:
+        argv.append("--force")
+
+    result = active.run(argv, cwd=bench_path)
+
+    if result.executed and result.returncode != 0:
+        raise SiteOperationError("restore", result)
+
+    return SiteRestoreResult(command=result)

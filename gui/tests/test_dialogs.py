@@ -10,6 +10,8 @@ from benchbox_gui.widgets.dialogs import (
     GetAppDialog,
     NewBenchDialog,
     NewSiteDialog,
+    RestoreSiteDialog,
+    _inject_token,
 )
 
 
@@ -115,3 +117,54 @@ def test_get_app_dialog_preserves_custom_branch(qtbot: QtBot, tmp_path: Path) ->
     dialog._branch.setText("version-15")  # noqa: SLF001
 
     assert dialog.values().branch == "version-15"
+
+
+def test_get_app_dialog_injects_token_into_https_url(qtbot: QtBot, tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    dialog = GetAppDialog([bench], preselect=bench)
+    qtbot.addWidget(dialog)
+    dialog._url.setText("https://github.com/frappe/erpnext")  # noqa: SLF001
+    dialog._token.setText("ghp_abc123")  # noqa: SLF001
+
+    assert dialog.values().git_url == "https://ghp_abc123@github.com/frappe/erpnext"
+
+
+def test_get_app_dialog_without_token_preserves_url(qtbot: QtBot, tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    dialog = GetAppDialog([bench], preselect=bench)
+    qtbot.addWidget(dialog)
+    dialog._url.setText("https://github.com/frappe/erpnext")  # noqa: SLF001
+
+    assert dialog.values().git_url == "https://github.com/frappe/erpnext"
+
+
+def test_inject_token_skips_ssh_urls() -> None:
+    # SSH URLs can't carry a token in the URL — leave them alone.
+    assert (
+        _inject_token("git@github.com:frappe/erpnext.git", "tok")
+        == "git@github.com:frappe/erpnext.git"
+    )
+
+
+def test_restore_site_dialog_roundtrips_values(qtbot: QtBot, tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    sql = tmp_path / "backup.sql.gz"
+    sql.write_bytes(b"-- fake")
+
+    dialog = RestoreSiteDialog(
+        {bench: ["s.local", "other.local"]},
+        preselect_bench=bench,
+        preselect_site="s.local",
+    )
+    qtbot.addWidget(dialog)
+    dialog._sql.setText(str(sql))  # noqa: SLF001
+    dialog._admin.setText("new-admin")  # noqa: SLF001
+
+    values = dialog.values()
+    assert values.bench_path == bench
+    assert values.site_name == "s.local"
+    assert values.sql_path == sql
+    assert values.admin_password == "new-admin"
+    assert values.with_public_files is None
+    assert values.with_private_files is None
+    assert values.force is True  # default-checked

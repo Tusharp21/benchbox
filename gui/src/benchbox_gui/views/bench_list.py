@@ -9,6 +9,7 @@ from benchbox_core import discovery, introspect
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -57,15 +58,6 @@ class BenchListView(QWidget):
         subtitle = QLabel("Click a card to open its detail view")
         subtitle.setProperty("role", "dim")
 
-        self._search = QLineEdit()
-        self._search.setPlaceholderText("Search by name or path…")
-        self._search.setClearButtonEnabled(True)
-        self._search.setMinimumWidth(260)
-        self._search.textChanged.connect(self._on_filter_changed)
-
-        self._running_only_toggle = QCheckBox("Running only")
-        self._running_only_toggle.toggled.connect(self._on_running_only_toggled)
-
         refresh = QPushButton("Refresh")
         refresh.setProperty("role", "ghost")
         refresh.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -84,10 +76,31 @@ class BenchListView(QWidget):
         header = QHBoxLayout()
         header.setSpacing(10)
         header.addLayout(header_text, 1)
-        header.addWidget(self._search, 0, Qt.AlignmentFlag.AlignTop)
-        header.addWidget(self._running_only_toggle, 0, Qt.AlignmentFlag.AlignTop)
         header.addWidget(refresh, 0, Qt.AlignmentFlag.AlignTop)
         header.addWidget(self._new_bench, 0, Qt.AlignmentFlag.AlignTop)
+
+        # Filter toolbar — visually grouped so it reads as "controls for the
+        # grid below" rather than a second header row of disconnected inputs.
+        filter_label = QLabel("Filter:")
+        filter_label.setProperty("role", "dim")
+
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Search by name or path…")
+        self._search.setClearButtonEnabled(True)
+        self._search.setMinimumWidth(280)
+        self._search.textChanged.connect(self._on_filter_changed)
+
+        self._running_only_toggle = QCheckBox("Running only")
+        self._running_only_toggle.toggled.connect(self._on_running_only_toggled)
+
+        self._filter_bar = QFrame()
+        self._filter_bar.setObjectName("FilterBar")
+        filter_layout = QHBoxLayout(self._filter_bar)
+        filter_layout.setContentsMargins(14, 10, 14, 10)
+        filter_layout.setSpacing(12)
+        filter_layout.addWidget(filter_label)
+        filter_layout.addWidget(self._search, 1)
+        filter_layout.addWidget(self._running_only_toggle)
 
         self._grid = CardGrid()
         self._scroll = QScrollArea()
@@ -110,8 +123,9 @@ class BenchListView(QWidget):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
-        root.setSpacing(16)
+        root.setSpacing(14)
         root.addLayout(header)
+        root.addWidget(self._filter_bar)
         root.addWidget(self._scroll, 1)
         root.addWidget(self._no_results)
         root.addWidget(self._empty)

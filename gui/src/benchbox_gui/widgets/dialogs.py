@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from benchbox_core.bench import DEFAULT_FRAPPE_BRANCH, DEFAULT_PYTHON_BIN
 from PySide6.QtCore import Qt
@@ -293,11 +294,21 @@ class GetAppDialog(QDialog):
         self._branch = QLineEdit()
         self._branch.setPlaceholderText("(optional) e.g. version-15 — leave blank for default")
 
+        # Private-repo auth: a personal access token is injected into the
+        # https URL as `https://<token>@host/…` so bench get-app can clone
+        # without prompting. Left blank for public repos.
+        self._token = QLineEdit()
+        self._token.setEchoMode(QLineEdit.EchoMode.Password)
+        self._token.setPlaceholderText(
+            "(optional) GitHub/GitLab personal access token for private repos"
+        )
+
         form = QFormLayout()
         form.setSpacing(10)
         form.addRow("Bench", self._bench)
         form.addRow("Git URL", self._url)
         form.addRow("Branch", self._branch)
+        form.addRow("Token", self._token)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -326,10 +337,191 @@ class GetAppDialog(QDialog):
 
     def values(self) -> GetAppValues:
         branch = self._branch.text().strip() or None
+        url = self._url.text().strip()
+        token = self._token.text().strip()
+        if token:
+            url = _inject_token(url, token)
         return GetAppValues(
             bench_path=self._bench.currentData(),
-            git_url=self._url.text().strip(),
+            git_url=url,
             branch=branch,
+        )
+
+
+def _inject_token(git_url: str, token: str) -> str:
+    """Rewrite an https git URL so it carries a PAT in the userinfo.
+
+    GitHub/GitLab accept ``https://<token>@host/...`` as basic-auth (the
+    token is treated as the username, password empty). SSH URLs (``git@``)
+    and anything non-https are returned unchanged — a token isn't useful
+    there anyway.
+    """
+    split = urlsplit(git_url)
+    if split.scheme != "https" or not split.hostname:
+        return git_url
+    # Drop any existing userinfo (rare, but don't compound).
+    host = split.hostname
+    netloc = f"{token}@{host}"
+    if split.port:
+        netloc = f"{netloc}:{split.port}"
+    return urlunsplit((split.scheme, netloc, split.path, split.query, split.fragment))
+
+
+# --- RestoreSiteDialog -------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RestoreSiteValues:
+    bench_path: Path
+    site_name: str
+    sql_path: Path
+    admin_password: str | None
+    with_public_files: Path | None
+    with_private_files: Path | None
+    force: bool
+
+
+class RestoreSiteDialog(QDialog):
+    """Picks an existing site + a SQL backup (optionally public/private file
+    tarballs) to restore onto that site.
+
+    The MariaDB root password isn't prompted for here — the caller loads
+    it from the credentials store (same pattern as NewSiteDialog).
+    """
+
+    def __init__(
+        self,
+        bench_sites: dict[Path, list[str]],
+        *,
+        parent: QWidget | None = None,
+        preselect_bench: Path | None = None,
+        preselect_site: str | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Restore site")
+        self.setMinimumWidth(580)
+        self._bench_sites = bench_sites
+
+        self._bench = QComboBox()
+        for path in bench_sites:
+            self._bench.addItem(str(path), userData=path)
+        if preselect_bench is not None:
+            idx = self._bench.findData(preselect_bench)
+            if idx >= 0:
+                self._bench.setCurrentIndex(idx)
+        self._bench.currentIndexChanged.connect(self._reload_sites)
+
+        self._site = QComboBox()
+        self._reload_sites()
+        if preselect_site is not None:
+            idx = self._site.findText(preselect_site)
+            if idx >= 0:
+                self._site.setCurrentIndex(idx)
+
+        self._sql = QLineEdit()
+        self._sql.setPlaceholderText("Path to SQL or .sql.gz backup")
+        sql_browse = QPushButton("Browse…")
+        sql_browse.setProperty("role", "ghost")
+        sql_browse.clicked.connect(lambda: self._pick_file(self._sql, "SQL backup"))
+        sql_row = QHBoxLayout()
+        sql_row.addWidget(self._sql, 1)
+        sql_row.addWidget(sql_browse)
+
+        self._public = QLineEdit()
+        self._public.setPlaceholderText("(optional) files.tar archive with public files")
+        public_browse = QPushButton("Browse…")
+        public_browse.setProperty("role", "ghost")
+        public_browse.clicked.connect(lambda: self._pick_file(self._public, "Public files"))
+        public_row = QHBoxLayout()
+        public_row.addWidget(self._public, 1)
+        public_row.addWidget(public_browse)
+
+        self._private = QLineEdit()
+        self._private.setPlaceholderText("(optional) private-files.tar archive")
+        private_browse = QPushButton("Browse…")
+        private_browse.setProperty("role", "ghost")
+        private_browse.clicked.connect(lambda: self._pick_file(self._private, "Private files"))
+        private_row = QHBoxLayout()
+        private_row.addWidget(self._private, 1)
+        private_row.addWidget(private_browse)
+
+        self._admin = QLineEdit()
+        self._admin.setEchoMode(QLineEdit.EchoMode.Password)
+        self._admin.setPlaceholderText("(optional) reset Administrator password to this value")
+
+        self._force = QCheckBox("Force (overwrite existing DB)")
+        self._force.setChecked(True)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.addRow("Bench", self._bench)
+        form.addRow("Site", self._site)
+        form.addRow("SQL backup", sql_row)
+        form.addRow("Public files", public_row)
+        form.addRow("Private files", private_row)
+        form.addRow("Admin password", self._admin)
+        form.addRow("", self._force)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._try_accept)
+        buttons.rejected.connect(self.reject)
+        ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok is not None:
+            ok.setText("Restore site")
+            ok.setProperty("role", "primary")
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 20, 20, 16)
+        root.setSpacing(16)
+        root.addLayout(form)
+        root.addWidget(buttons)
+
+    def _pick_file(self, target: QLineEdit, label: str) -> None:
+        picked, _ = QFileDialog.getOpenFileName(self, f"Select {label}", str(Path.home()))
+        if picked:
+            target.setText(picked)
+
+    def _reload_sites(self) -> None:
+        self._site.clear()
+        bench = self._bench.currentData()
+        if bench is None:
+            return
+        for site in self._bench_sites.get(bench, []):
+            self._site.addItem(site)
+
+    def _try_accept(self) -> None:
+        if self._bench.currentData() is None:
+            QMessageBox.warning(self, "No bench", "No bench selected.")
+            return
+        if not self._site.currentText():
+            QMessageBox.warning(self, "No site", "This bench has no sites to restore into.")
+            return
+        sql = self._sql.text().strip()
+        if not sql:
+            QMessageBox.warning(self, "Missing backup", "Pick a SQL backup file.")
+            return
+        if not Path(sql).expanduser().is_file():
+            QMessageBox.warning(
+                self, "Backup not found", f"SQL backup does not exist:\n{sql}"
+            )
+            return
+        self.accept()
+
+    def values(self) -> RestoreSiteValues:
+        def _opt_path(text: str) -> Path | None:
+            t = text.strip()
+            return Path(t).expanduser() if t else None
+
+        return RestoreSiteValues(
+            bench_path=self._bench.currentData(),
+            site_name=self._site.currentText(),
+            sql_path=Path(self._sql.text().strip()).expanduser(),
+            admin_password=self._admin.text() or None,
+            with_public_files=_opt_path(self._public.text()),
+            with_private_files=_opt_path(self._private.text()),
+            force=self._force.isChecked(),
         )
 
 
@@ -528,6 +720,8 @@ __all__ = [
     "NewBenchValues",
     "NewSiteDialog",
     "NewSiteValues",
+    "RestoreSiteDialog",
+    "RestoreSiteValues",
     "TypedNameConfirmDialog",
     "confirm",
 ]

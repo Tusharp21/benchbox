@@ -33,6 +33,8 @@ from benchbox_gui.widgets.dialogs import (
     GetAppValues,
     NewSiteDialog,
     NewSiteValues,
+    RestoreSiteDialog,
+    RestoreSiteValues,
 )
 from benchbox_gui.workers import OperationWorker
 
@@ -70,6 +72,7 @@ class BenchDetailView(QWidget):
         self._actions.open_folder_requested.connect(self._on_open_folder)
         self._actions.new_site_requested.connect(self._on_new_site)
         self._actions.get_app_requested.connect(self._on_get_app)
+        self._actions.restore_site_requested.connect(self._on_restore_site)
 
         # Process panel is now a subscriber to the shared manager; it
         # doesn't own the QProcess, so switching benches / going back
@@ -100,10 +103,20 @@ class BenchDetailView(QWidget):
         sites_layout.setContentsMargins(8, 8, 8, 8)
         sites_layout.addWidget(self._sites)
 
+        # Apps + Sites share a row so the user can see both at a glance
+        # without scrolling past the process log.
+        apps_sites_row = QHBoxLayout()
+        apps_sites_row.setSpacing(12)
+        apps_sites_row.addWidget(apps_box, 1)
+        apps_sites_row.addWidget(sites_box, 1)
+
         process_box = QGroupBox("Bench process")
         process_layout = QVBoxLayout(process_box)
         process_layout.setContentsMargins(8, 8, 8, 8)
         process_layout.addWidget(self._process)
+        # Give the log a tall minimum so it stays legible even when the
+        # apps/sites row below is also fighting for vertical space.
+        process_box.setMinimumHeight(320)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
@@ -112,9 +125,11 @@ class BenchDetailView(QWidget):
         layout.addWidget(self._title)
         layout.addWidget(self._meta)
         layout.addWidget(self._actions)
-        layout.addWidget(process_box, 1)
-        layout.addWidget(apps_box, 1)
-        layout.addWidget(sites_box, 1)
+        # Stretch weights: process log takes ~2/3 of remaining space, the
+        # apps+sites row takes the rest. Feels like a dashboard rather
+        # than three equal-height panes.
+        layout.addWidget(process_box, 2)
+        layout.addLayout(apps_sites_row, 1)
 
     # --- loading ------------------------------------------------------
 
@@ -223,6 +238,53 @@ class BenchDetailView(QWidget):
             op,
             on_success=lambda _r: self._on_mutation_success("App fetched."),
             on_failure=lambda e: self._on_mutation_failed("Fetching app failed", e),
+        )
+
+    def _on_restore_site(self) -> None:
+        if self._current_path is None:
+            return
+        info = introspect.introspect(self._current_path)
+        sites = [s.name for s in info.sites]
+        if not sites:
+            QMessageBox.information(
+                self,
+                "No sites",
+                "This bench has no sites to restore into. Create a site first.",
+            )
+            return
+        dialog = RestoreSiteDialog(
+            {self._current_path: sites},
+            parent=self,
+            preselect_bench=self._current_path,
+        )
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        db_root = self._ensure_mariadb_password()
+        if db_root is None:
+            return
+        self._start_restore_site(dialog.values(), db_root)
+
+    def _start_restore_site(self, values: RestoreSiteValues, db_root: str) -> None:
+        self._open_progress(f"Restoring {values.site_name} from {values.sql_path.name}…")
+
+        def op() -> core_site.SiteRestoreResult:
+            return core_site.restore_site(
+                values.bench_path,
+                values.site_name,
+                values.sql_path,
+                db_root_password=db_root,
+                admin_password=values.admin_password,
+                with_public_files=values.with_public_files,
+                with_private_files=values.with_private_files,
+                force=values.force,
+            )
+
+        self._spawn_worker(
+            op,
+            on_success=lambda _r: self._on_mutation_success(
+                f"Site {values.site_name!r} restored."
+            ),
+            on_failure=lambda e: self._on_mutation_failed("Restore failed", e),
         )
 
     # --- worker plumbing ---------------------------------------------

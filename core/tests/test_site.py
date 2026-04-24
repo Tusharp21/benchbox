@@ -12,6 +12,7 @@ from benchbox_core.site import (
     SiteOperationError,
     create_site,
     drop_site,
+    restore_site,
 )
 
 
@@ -271,3 +272,94 @@ def test_drop_site_dry_run_skips_existence_guard(tmp_path: Path) -> None:
 
     result = drop_site(bench, "ghost.local", db_root_password="r", runner=dry)
     assert result.command.executed is False
+
+
+# --- restore_site --------------------------------------------------
+
+
+def _make_sql_file(path: Path) -> Path:
+    path.write_bytes(b"-- fake sql dump\n")
+    return path
+
+
+def test_restore_site_argv_shape_and_cwd(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    _make_site_dir(bench, "s.local")
+    sql = _make_sql_file(tmp_path / "backup.sql.gz")
+    runner = CapturingRunner(returncode=0)
+
+    restore_site(bench, "s.local", sql, db_root_password="root-pw", runner=runner)
+
+    argv, cwd = runner.calls[0]
+    assert argv[:5] == ("bench", "--site", "s.local", "restore", str(sql))
+    assert "--db-root-password" in argv
+    assert argv[argv.index("--db-root-password") + 1] == "root-pw"
+    assert cwd == str(bench)
+
+
+def test_restore_site_optional_flags(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    _make_site_dir(bench, "s.local")
+    sql = _make_sql_file(tmp_path / "backup.sql.gz")
+    pub = _make_sql_file(tmp_path / "files.tar")
+    priv = _make_sql_file(tmp_path / "private-files.tar")
+    runner = CapturingRunner(returncode=0)
+
+    restore_site(
+        bench,
+        "s.local",
+        sql,
+        db_root_password="r",
+        admin_password="new-admin",
+        with_public_files=pub,
+        with_private_files=priv,
+        force=True,
+        runner=runner,
+    )
+
+    argv = runner.calls[0][0]
+    assert "--admin-password" in argv
+    assert argv[argv.index("--admin-password") + 1] == "new-admin"
+    assert "--with-public-files" in argv
+    assert argv[argv.index("--with-public-files") + 1] == str(pub)
+    assert "--with-private-files" in argv
+    assert argv[argv.index("--with-private-files") + 1] == str(priv)
+    assert "--force" in argv
+
+
+def test_restore_site_raises_when_site_missing(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    sql = _make_sql_file(tmp_path / "backup.sql")
+
+    with pytest.raises(SiteNotFoundError):
+        restore_site(bench, "ghost.local", sql, db_root_password="r", runner=CapturingRunner())
+
+
+def test_restore_site_raises_when_backup_missing(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    _make_site_dir(bench, "s.local")
+
+    with pytest.raises(FileNotFoundError):
+        restore_site(
+            bench,
+            "s.local",
+            tmp_path / "nope.sql",
+            db_root_password="r",
+            runner=CapturingRunner(),
+        )
+
+
+def test_restore_site_raises_on_nonzero_exit(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    _make_site_dir(bench, "s.local")
+    sql = _make_sql_file(tmp_path / "backup.sql")
+    runner = CapturingRunner(returncode=1)
+
+    with pytest.raises(SiteOperationError) as excinfo:
+        restore_site(bench, "s.local", sql, db_root_password="r", runner=runner)
+    assert excinfo.value.operation == "restore"
