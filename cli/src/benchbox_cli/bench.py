@@ -93,3 +93,88 @@ def info_cmd(
         err_console.print(f"[red]not a bench directory:[/] {path}")
         raise typer.Exit(2)
     print_bench_info(introspect.introspect(path))
+
+
+def _require_mariadb_password() -> str:
+    from benchbox_core import credentials
+
+    pw = credentials.get_mariadb_root_password()
+    if pw is None:
+        err_console.print(
+            "[red]No MariaDB root password stored.[/] "
+            "Run `benchbox install` once to set it, or populate "
+            "~/.benchbox/credentials.json manually."
+        )
+        raise typer.Exit(2)
+    return pw
+
+
+@bench_app.command("migrate")
+def migrate_cmd(
+    bench_path: Path = typer.Argument(..., exists=True, dir_okay=True, file_okay=False),
+    site: str = typer.Argument(...),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Run `bench --site SITE migrate` inside BENCH_PATH."""
+    runner = CommandRunner(dry_run=dry_run)
+    try:
+        core_bench.migrate_site(bench_path, site, runner=runner)
+    except core_bench.BenchSiteOperationError as err:
+        err_console.print(f"[red]{err}[/]")
+        raise typer.Exit(1) from err
+
+    if dry_run:
+        console.print("[yellow]dry-run: nothing executed[/]")
+    else:
+        console.print(f"[green]✓ migrated {site}[/]")
+
+
+@bench_app.command("backup")
+def backup_cmd(
+    bench_path: Path = typer.Argument(..., exists=True, dir_okay=True, file_okay=False),
+    site: str = typer.Argument(...),
+    with_files: bool = typer.Option(False, "--with-files", help="also tar the site's files"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Dump SITE's database (and optionally its files) via `bench backup`."""
+    runner = CommandRunner(dry_run=dry_run)
+    try:
+        core_bench.backup_site(bench_path, site, with_files=with_files, runner=runner)
+    except core_bench.BenchSiteOperationError as err:
+        err_console.print(f"[red]{err}[/]")
+        raise typer.Exit(1) from err
+
+    if dry_run:
+        console.print("[yellow]dry-run: nothing executed[/]")
+    else:
+        console.print(f"[green]✓ backup written to {bench_path}/sites/{site}/private/backups/[/]")
+
+
+@bench_app.command("restore")
+def restore_cmd(
+    bench_path: Path = typer.Argument(..., exists=True, dir_okay=True, file_okay=False),
+    site: str = typer.Argument(...),
+    sql: Path = typer.Option(
+        ..., "--sql", exists=True, dir_okay=False, help="path to the SQL dump"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Restore SITE from SQL via `bench restore`."""
+    db_root = _require_mariadb_password()
+    runner = CommandRunner(dry_run=dry_run)
+    try:
+        core_bench.restore_site(
+            bench_path,
+            site,
+            sql_path=sql,
+            db_root_password=db_root,
+            runner=runner,
+        )
+    except core_bench.BenchSiteOperationError as err:
+        err_console.print(f"[red]{err}[/]")
+        raise typer.Exit(1) from err
+
+    if dry_run:
+        console.print("[yellow]dry-run: nothing executed[/]")
+    else:
+        console.print(f"[green]✓ restored {site} from {sql}[/]")
