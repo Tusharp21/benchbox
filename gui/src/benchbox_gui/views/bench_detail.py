@@ -7,7 +7,7 @@ from pathlib import Path
 from benchbox_core import app as core_app
 from benchbox_core import credentials, introspect
 from benchbox_core import site as core_site
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -86,22 +88,26 @@ class BenchDetailView(QWidget):
         self._apps.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self._apps.verticalHeader().setVisible(False)
         self._apps.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._apps.setMinimumHeight(300)
 
         self._sites = QTableWidget(0, 3)
         self._sites.setHorizontalHeaderLabels(["site", "db name", "apps"])
         self._sites.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self._sites.verticalHeader().setVisible(False)
         self._sites.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._sites.setMinimumHeight(300)
 
         apps_box = QGroupBox("Apps")
         apps_layout = QVBoxLayout(apps_box)
         apps_layout.setContentsMargins(8, 8, 8, 8)
         apps_layout.addWidget(self._apps)
+        apps_box.setMinimumHeight(340)
 
         sites_box = QGroupBox("Sites")
         sites_layout = QVBoxLayout(sites_box)
         sites_layout.setContentsMargins(8, 8, 8, 8)
         sites_layout.addWidget(self._sites)
+        sites_box.setMinimumHeight(340)
 
         # Apps + Sites share a row so the user can see both at a glance
         # without scrolling past the process log.
@@ -116,20 +122,38 @@ class BenchDetailView(QWidget):
         process_layout.addWidget(self._process)
         # Give the log a tall minimum so it stays legible even when the
         # apps/sites row below is also fighting for vertical space.
-        process_box.setMinimumHeight(320)
+        process_box.setMinimumHeight(360)
+
+        # The whole detail view is scrollable: the three panes below can
+        # easily overflow a short window (apps + sites tables each want
+        # ~340px, and the process log wants ~360px). Wrapping in a scroll
+        # area keeps tables usably large without clipping or cramming.
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(20, 16, 20, 16)
+        content_layout.setSpacing(12)
+        content_layout.addLayout(header_row)
+        content_layout.addWidget(self._title)
+        content_layout.addWidget(self._meta)
+        content_layout.addWidget(self._actions)
+        content_layout.addWidget(process_box)
+        content_layout.addLayout(apps_sites_row)
+        content_layout.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+
+        # Let the scroll area expand to fill whatever space this view gets
+        # in the main window.
+        scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(10)
-        layout.addLayout(header_row)
-        layout.addWidget(self._title)
-        layout.addWidget(self._meta)
-        layout.addWidget(self._actions)
-        # Stretch weights: process log takes ~2/3 of remaining space, the
-        # apps+sites row takes the rest. Feels like a dashboard rather
-        # than three equal-height panes.
-        layout.addWidget(process_box, 2)
-        layout.addLayout(apps_sites_row, 1)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(scroll)
 
     # --- loading ------------------------------------------------------
 
