@@ -43,7 +43,7 @@ docs/
 - [x] **Phase 0** — Foundation (scaffold, CI, license, templates)
 - [x] **Phase 1** — Core: discovery + introspection + live stats
 - [x] **Phase 2** — Core: installer (deps, MariaDB, Node, Redis, wkhtmltopdf)
-- [ ] **Phase 3** — Core: bench/site/app operations
+- [x] **Phase 3** — Core: bench/site/app operations
 - [ ] **Phase 4** — CLI frontend
 - [ ] **Phase 5** — Tauri GUI
 - [ ] **Phase 6** — Release pipeline (signed `.deb` + `.AppImage`)
