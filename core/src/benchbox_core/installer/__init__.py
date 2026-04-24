@@ -21,6 +21,8 @@ from benchbox_core.installer._types import (
 )
 from benchbox_core.installer.apt import AptComponent
 from benchbox_core.installer.mariadb import MariaDBComponent
+from benchbox_core.installer.node import NodeComponent
+from benchbox_core.installer.redis import RedisComponent
 from benchbox_core.installer.runner import install
 
 __all__ = [
@@ -32,6 +34,8 @@ __all__ = [
     "ComponentResult",
     "InstallResult",
     "MariaDBComponent",
+    "NodeComponent",
+    "RedisComponent",
     "Step",
     "StepResult",
     "install",
