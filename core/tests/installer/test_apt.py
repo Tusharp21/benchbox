@@ -17,6 +17,7 @@ class FakeProbeRunner(CommandRunner):
         self,
         command: list[str] | tuple[str, ...],
         *,
+        input: str | None = None,
         check: bool = False,
         timeout: float | None = None,
     ) -> CommandResult:
@@ -116,6 +117,7 @@ class ScriptedApplyRunner(CommandRunner):
         self,
         command: list[str] | tuple[str, ...],
         *,
+        input: str | None = None,
         check: bool = False,
         timeout: float | None = None,
     ) -> CommandResult:

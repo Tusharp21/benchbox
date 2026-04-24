@@ -15,13 +15,17 @@ from typing import Protocol, runtime_checkable
 class Step:
     """A single unit of work inside a component.
 
-    ``command`` is the argv to execute. If ``skip_reason`` is set, the step is
-    already satisfied (e.g. package already installed) and ``apply()`` will
-    record it as skipped instead of running the command.
+    ``command`` is the argv to execute. ``stdin``, if set, is piped to the
+    subprocess — used for writing config files via ``sudo tee`` and for
+    sending SQL to ``mysql`` (which keeps passwords out of ``ps aux``).
+    If ``skip_reason`` is set, the step is already satisfied (e.g. package
+    already installed) and ``apply()`` will record it as skipped instead of
+    running the command.
     """
 
     description: str
     command: tuple[str, ...]
+    stdin: str | None = None
     skip_reason: str | None = None
 
 

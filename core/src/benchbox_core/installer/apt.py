@@ -127,7 +127,7 @@ class AptComponent:
                     )
                 )
                 continue
-            cmd_result = runner.run(list(step.command))
+            cmd_result = runner.run(list(step.command), input=step.stdin)
             results.append(
                 StepResult(
                     step=step,

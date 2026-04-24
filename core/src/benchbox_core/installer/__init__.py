@@ -20,6 +20,7 @@ from benchbox_core.installer._types import (
     StepResult,
 )
 from benchbox_core.installer.apt import AptComponent
+from benchbox_core.installer.mariadb import MariaDBComponent
 from benchbox_core.installer.runner import install
 
 __all__ = [
@@ -30,6 +31,7 @@ __all__ = [
     "ComponentPlan",
     "ComponentResult",
     "InstallResult",
+    "MariaDBComponent",
     "Step",
     "StepResult",
     "install",

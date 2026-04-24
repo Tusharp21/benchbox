@@ -55,6 +55,7 @@ class CommandRunner:
         self,
         command: list[str] | tuple[str, ...],
         *,
+        input: str | None = None,
         check: bool = False,
         timeout: float | None = None,
     ) -> CommandResult:
@@ -62,7 +63,8 @@ class CommandRunner:
         pretty = shlex.join(argv)
 
         if self.dry_run:
-            _log.info("[dry-run] %s", pretty)
+            suffix = " (with stdin)" if input is not None else ""
+            _log.info("[dry-run] %s%s", pretty, suffix)
             result = CommandResult(argv, 0, "", "", executed=False)
             self._history.append(result)
             return result
@@ -71,6 +73,7 @@ class CommandRunner:
         try:
             proc = subprocess.run(  # noqa: S603  # argv list, never shell=True
                 argv,
+                input=input,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
