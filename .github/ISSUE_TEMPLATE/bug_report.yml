@@ -1,0 +1,51 @@
+name: Bug report
+description: Something broke during install or while managing a bench
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please include the output of `benchbox doctor`
+        and the relevant log file from `~/.benchbox/logs/`.
+
+  - type: input
+    id: ubuntu-version
+    attributes:
+      label: Ubuntu version
+      description: Output of `lsb_release -ds`
+      placeholder: Ubuntu 24.04 LTS
+    validations:
+      required: true
+
+  - type: input
+    id: benchbox-version
+    attributes:
+      label: benchbox version
+      description: Output of `benchbox --version`
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you run, what did you expect, what went wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor-output
+    attributes:
+      label: benchbox doctor output
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log excerpt
+      description: From `~/.benchbox/logs/<timestamp>/`
+      render: shell
+    validations:
+      required: false

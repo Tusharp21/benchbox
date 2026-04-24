@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "benchbox-cli"
+version = "0.0.0"
+description = "Typer-based CLI for benchbox — installs and manages Frappe benches."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "benchbox contributors" }]
+dependencies = [
+    "benchbox-core",
+    "typer>=0.12",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+benchbox = "benchbox_cli.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/benchbox_cli"]
+
+[tool.uv.sources]
+benchbox-core = { path = "../core", editable = true }
