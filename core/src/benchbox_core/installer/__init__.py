@@ -20,6 +20,7 @@ from benchbox_core.installer._types import (
     StepResult,
 )
 from benchbox_core.installer.apt import AptComponent
+from benchbox_core.installer.bench_cli import BenchCliComponent
 from benchbox_core.installer.mariadb import MariaDBComponent
 from benchbox_core.installer.node import NodeComponent
 from benchbox_core.installer.redis import RedisComponent
@@ -28,6 +29,7 @@ from benchbox_core.installer.wkhtmltopdf import WkhtmltopdfComponent
 
 __all__ = [
     "AptComponent",
+    "BenchCliComponent",
     "CommandResult",
     "CommandRunner",
     "Component",
