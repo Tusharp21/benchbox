@@ -1,9 +1,11 @@
-"""Logs tab — live tail of the current benchbox session log.
+"""Logs tab — live tail of a benchbox session log.
 
-Polls ``~/.benchbox/logs/<session>/session.log`` on a QTimer, appends any
-new bytes to a scrolling read-only panel, and offers Open Folder + Clear
-actions. Follow mode keeps the view pinned to the bottom so long-running
-installer runs read cleanly.
+Polls ``<log_root>/<session>/session.log`` on a QTimer, appends any
+new bytes to a scrolling read-only panel. A session picker lets the user
+browse older sessions — the *current* session is often empty at first
+(nothing has been logged yet), so being able to jump to a historical
+session that actually has content is important for "where did the last
+run go?" debugging.
 
 Not part of the core loop — this is a 1-second filesystem tail, good
 enough for developer-facing visibility without going full QFileSystemWatcher.
@@ -11,6 +13,7 @@ enough for developer-facing visibility without going full QFileSystemWatcher.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from benchbox_core import logs
@@ -18,6 +21,7 @@ from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -29,8 +33,23 @@ from PySide6.QtWidgets import (
 DEFAULT_TAIL_MS: int = 1000
 
 
+def _log_root() -> Path:
+    override = os.environ.get(logs.ENV_LOG_DIR)
+    return Path(override) if override else logs.DEFAULT_LOG_ROOT
+
+
+def _discover_sessions() -> list[Path]:
+    """Return every session directory on disk, newest first."""
+    root = _log_root()
+    if not root.is_dir():
+        return []
+    sessions = [p for p in root.iterdir() if p.is_dir() and (p / "session.log").is_file()]
+    sessions.sort(key=lambda p: p.name, reverse=True)
+    return sessions
+
+
 class LogsView(QWidget):
-    """Live tail of the current session log."""
+    """Live tail of a session log, with historical session picker."""
 
     def __init__(self, parent: QWidget | None = None, *, tail_ms: int = DEFAULT_TAIL_MS) -> None:
         super().__init__(parent)
@@ -41,6 +60,27 @@ class LogsView(QWidget):
         title.setProperty("role", "h1")
         subtitle = QLabel("Live tail of the current benchbox session log")
         subtitle.setProperty("role", "dim")
+
+        # Session picker — current session on top, then older ones. Useful
+        # because the current session.log is empty until something logs.
+        session_label = QLabel("Session:")
+        session_label.setProperty("role", "dim")
+
+        self._session_picker = QComboBox()
+        self._session_picker.setMinimumWidth(320)
+        self._session_picker.currentIndexChanged.connect(self._on_session_changed)
+
+        refresh_sessions = QPushButton("↻")
+        refresh_sessions.setProperty("role", "ghost")
+        refresh_sessions.setToolTip("Rescan log directory for new sessions")
+        refresh_sessions.setFixedWidth(36)
+        refresh_sessions.clicked.connect(self._reload_sessions)
+
+        session_row = QHBoxLayout()
+        session_row.setSpacing(8)
+        session_row.addWidget(session_label)
+        session_row.addWidget(self._session_picker, 1)
+        session_row.addWidget(refresh_sessions)
 
         self._session_path = QLabel()
         self._session_path.setProperty("role", "dim")
@@ -68,13 +108,16 @@ class LogsView(QWidget):
         self._view = QPlainTextEdit()
         self._view.setReadOnly(True)
         self._view.setMaximumBlockCount(5000)  # hard cap so long sessions don't eat RAM
-        mono = QFont("JetBrains Mono, Fira Code, Courier New", 9)
+        mono = QFont("JetBrains Mono, Fira Code, Courier New", 10)
         mono.setStyleHint(QFont.StyleHint.Monospace)
         self._view.setFont(mono)
         self._view.setPlaceholderText(
-            "No log output yet. benchbox writes to its session log as soon as "
-            "it does anything — run a command from another sidebar tab to see "
-            "lines appear here."
+            "This session has not logged anything yet.\n"
+            "benchbox writes a line every time it runs a command — try "
+            "creating a bench, getting an app, or creating a site from the "
+            "sidebar, then come back here.\n"
+            "Older sessions that DO have content are reachable from the "
+            "Session dropdown above."
         )
 
         header_text = QVBoxLayout()
@@ -84,13 +127,16 @@ class LogsView(QWidget):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 16)
-        root.setSpacing(14)
+        root.setSpacing(12)
         root.addLayout(header_text)
+        root.addLayout(session_row)
         root.addWidget(self._session_path)
         root.addLayout(toolbar)
         root.addWidget(self._view, 1)
 
-        self._resolve_log_path()
+        # Populate the session picker — this also sets the log path via
+        # the _on_session_changed slot.
+        self._reload_sessions()
 
         self._timer = QTimer(self)
         self._timer.setInterval(tail_ms)
@@ -100,14 +146,42 @@ class LogsView(QWidget):
 
     # --- helpers ------------------------------------------------------
 
-    def _resolve_log_path(self) -> None:
-        session = logs.current_session_dir()
-        if session is None:
-            session = logs.init_session()
-        self._log_path = session / "session.log"
+    def _reload_sessions(self) -> None:
+        """Refresh the session dropdown and re-select the active session."""
+        # Ensure at least the current session exists so there's always one
+        # row in the picker.
+        current = logs.current_session_dir()
+        if current is None:
+            current = logs.init_session()
+
+        sessions = _discover_sessions()
+        # Keep the current session first even if the timestamp sort would
+        # put an older manually-created directory above it.
+        if current in sessions:
+            sessions.remove(current)
+        sessions.insert(0, current)
+
+        # Block signals so repopulation doesn't fire a cascade of changes.
+        self._session_picker.blockSignals(True)
+        self._session_picker.clear()
+        for idx, path in enumerate(sessions):
+            label = f"{path.name} (current)" if idx == 0 else path.name
+            self._session_picker.addItem(label, userData=path)
+        self._session_picker.setCurrentIndex(0)
+        self._session_picker.blockSignals(False)
+        self._switch_to_session(sessions[0])
+
+    def _on_session_changed(self, _row: int) -> None:
+        path = self._session_picker.currentData()
+        if isinstance(path, Path):
+            self._switch_to_session(path)
+
+    def _switch_to_session(self, session_dir: Path) -> None:
+        self._log_path = session_dir / "session.log"
         self._session_path.setText(f"<code>{self._log_path}</code>")
         self._offset = 0
         self._view.clear()
+        self._poll_tail()
 
     def _poll_tail(self) -> None:
         path = self._log_path

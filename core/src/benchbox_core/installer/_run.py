@@ -103,6 +103,19 @@ class CommandRunner:
         if proc.stderr:
             _log.debug("stderr: %s", proc.stderr.rstrip())
 
+        # Surface the exit code at INFO so the session log always has at
+        # least one post-command line per run; on failure, also mirror
+        # stdout/stderr at INFO so users can see why without flipping to
+        # DEBUG.
+        if proc.returncode == 0:
+            _log.info("  -> exit 0")
+        else:
+            _log.info("  -> exit %d", proc.returncode)
+            if proc.stdout:
+                _log.info("stdout: %s", proc.stdout.rstrip())
+            if proc.stderr:
+                _log.info("stderr: %s", proc.stderr.rstrip())
+
         result = CommandResult(
             command=argv,
             returncode=proc.returncode,
