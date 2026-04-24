@@ -35,6 +35,18 @@ from PySide6.QtWidgets import (
 
 # --- NewBenchDialog ----------------------------------------------------
 
+# Preloaded into the Frappe branch combo. First entry is the default
+# (matches ``benchbox_core.bench.DEFAULT_FRAPPE_BRANCH``). Users on
+# develop or older sites can pick from the drop-down; arbitrary
+# branches/tags can still be typed in.
+COMMON_FRAPPE_REFS: tuple[str, ...] = (
+    "version-15",
+    "version-16",
+    "version-14",
+    "version-13",
+    "develop",
+)
+
 
 @dataclass(frozen=True)
 class NewBenchValues:
@@ -60,7 +72,15 @@ class NewBenchDialog(QDialog):
         path_row.addWidget(self._path, 1)
         path_row.addWidget(browse)
 
-        self._branch = QLineEdit(DEFAULT_FRAPPE_BRANCH)
+        # Editable combo so the user can pick a well-known branch/tag with
+        # one click or type an arbitrary ref (bugfix branches, specific
+        # tags like ``v15.50.0``, forks, etc.).
+        self._branch = QComboBox()
+        self._branch.setEditable(True)
+        for ref in COMMON_FRAPPE_REFS:
+            self._branch.addItem(ref)
+        self._branch.setCurrentText(DEFAULT_FRAPPE_BRANCH)
+
         self._python = QLineEdit(DEFAULT_PYTHON_BIN)
 
         form = QFormLayout()
@@ -100,9 +120,10 @@ class NewBenchDialog(QDialog):
 
     def values(self) -> NewBenchValues:
         text = self._path.text().strip() or self._path.placeholderText()
+        branch = self._branch.currentText().strip() or DEFAULT_FRAPPE_BRANCH
         return NewBenchValues(
             path=Path(text).expanduser(),
-            frappe_branch=self._branch.text().strip() or DEFAULT_FRAPPE_BRANCH,
+            frappe_branch=branch,
             python_bin=self._python.text().strip() or DEFAULT_PYTHON_BIN,
         )
 

@@ -6,6 +6,7 @@ from benchbox_core.bench import DEFAULT_FRAPPE_BRANCH, DEFAULT_PYTHON_BIN
 from pytestqt.qtbot import QtBot
 
 from benchbox_gui.widgets.dialogs import (
+    COMMON_FRAPPE_REFS,
     GetAppDialog,
     NewBenchDialog,
     NewSiteDialog,
@@ -26,13 +27,32 @@ def test_new_bench_dialog_roundtrips_custom_values(qtbot: QtBot, tmp_path: Path)
     dialog = NewBenchDialog()
     qtbot.addWidget(dialog)
     dialog._path.setText(str(tmp_path / "mybench"))  # noqa: SLF001
-    dialog._branch.setText("develop")  # noqa: SLF001
+    dialog._branch.setCurrentText("develop")  # noqa: SLF001
     dialog._python.setText("python3.12")  # noqa: SLF001
 
     values = dialog.values()
     assert values.path == tmp_path / "mybench"
     assert values.frappe_branch == "develop"
     assert values.python_bin == "python3.12"
+
+
+def test_new_bench_dialog_branch_combo_is_preloaded(qtbot: QtBot) -> None:
+    dialog = NewBenchDialog()
+    qtbot.addWidget(dialog)
+    # Drop-down contains every COMMON_FRAPPE_REFS entry.
+    combo = dialog._branch  # noqa: SLF001
+    items = [combo.itemText(i) for i in range(combo.count())]
+    assert items == list(COMMON_FRAPPE_REFS)
+    # And it's editable — so arbitrary branches/tags still work.
+    assert combo.isEditable() is True
+
+
+def test_new_bench_dialog_accepts_arbitrary_branch(qtbot: QtBot) -> None:
+    dialog = NewBenchDialog()
+    qtbot.addWidget(dialog)
+    dialog._branch.setCurrentText("v15.50.0-hotfix")  # noqa: SLF001 — arbitrary tag
+
+    assert dialog.values().frappe_branch == "v15.50.0-hotfix"
 
 
 def test_new_site_dialog_with_checkable_apps(qtbot: QtBot, tmp_path: Path) -> None:
