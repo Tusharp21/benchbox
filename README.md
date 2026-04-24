@@ -45,7 +45,7 @@ docs/
 - [x] **Phase 2** — Core: installer (deps, MariaDB, Node, Redis, wkhtmltopdf)
 - [x] **Phase 3** — Core: bench/site/app operations
 - [x] **Phase 4** — CLI frontend
-- [ ] **Phase 5** — Tauri GUI
+- [x] **Phase 5** — Desktop GUI (PySide6 — sidebar, stats banner, bench list/detail, installer) *(core views functional; sites/apps views still stub to the CLI; needs visual polish pass)*
 - [ ] **Phase 6** — Release pipeline (signed `.deb` + `.AppImage`)
 - [ ] **Phase 7** — E2E tests, macOS support
 

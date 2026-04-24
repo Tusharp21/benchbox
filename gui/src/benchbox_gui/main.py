@@ -1,0 +1,25 @@
+"""benchbox-gui entrypoint."""
+
+from __future__ import annotations
+
+import sys
+
+from benchbox_core import logs
+from PySide6.QtWidgets import QApplication
+
+from benchbox_gui.main_window import MainWindow
+
+
+def main() -> int:
+    logs.init_session()
+    app = QApplication(sys.argv)
+    app.setApplicationName("benchbox")
+    app.setOrganizationName("benchbox")
+
+    window = MainWindow()
+    window.show()
+    return app.exec()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())
