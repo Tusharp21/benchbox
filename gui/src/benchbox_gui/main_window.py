@@ -6,6 +6,7 @@ from pathlib import Path
 
 from benchbox_core import preferences
 from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from benchbox_gui.resources import icon, stylesheet
+from benchbox_gui.services.bench_processes import BenchProcessManager
 from benchbox_gui.views.apps import AppsView
 from benchbox_gui.views.bench_detail import BenchDetailView
 from benchbox_gui.views.bench_list import BenchListView
@@ -49,11 +51,17 @@ class MainWindow(QMainWindow):
 
         self._theme: preferences.Theme = preferences.get_theme()
 
+        # App-level singleton that owns every running `bench start`
+        # process. Views subscribe to it rather than owning their own
+        # QProcess, so switching views never kills a bench and multiple
+        # benches can run at once.
+        self._process_manager = BenchProcessManager(self)
+
         self._stack = QStackedWidget()
         self._pages: dict[str, int] = {}
 
-        self._bench_list = BenchListView()
-        self._bench_detail = BenchDetailView()
+        self._bench_list = BenchListView(self._process_manager)
+        self._bench_detail = BenchDetailView(self._process_manager)
         self._installer = InstallerView()
 
         self._bench_list.bench_selected.connect(self._on_bench_selected)
@@ -141,3 +149,10 @@ class MainWindow(QMainWindow):
                 item.setIcon(icon(icon_name, theme=typed_theme))
 
         preferences.set_theme(typed_theme)
+
+    # --- shutdown ----------------------------------------------------
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override
+        """Stop every running bench when the user closes the window."""
+        self._process_manager.stop_all()
+        super().closeEvent(event)

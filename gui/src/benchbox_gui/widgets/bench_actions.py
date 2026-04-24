@@ -1,20 +1,22 @@
-"""Action strip + process panel under the bench detail view.
+"""Action strip + bench-process log panel under the bench detail view.
 
-``BenchActionRow`` — five buttons: Start, Stop, Open folder, New site,
-Get app. Emits signals rather than doing I/O itself, so BenchDetailView
-stays in charge of sequencing the dialogs and workers.
+``BenchActionRow`` — Start / Stop / Open folder / + New site / + Get app.
+Emits signals rather than doing I/O itself, so BenchDetailView sequences
+the dialogs and workers.
 
-``BenchProcessPanel`` — wraps a ``QProcess`` running ``bench start`` with
-its working directory set to ``bench_path``. Captures stdout+stderr into
-a read-only log area. Kills the process cleanly on parent close.
+``BenchProcessPanel`` — live view over a single bench's log stream. Does
+NOT own the ``QProcess``; it subscribes to
+:class:`BenchProcessManager` so switching benches (or going back to the
+list) doesn't kill anything. Multiple benches can run concurrently; each
+detail view just displays whichever bench the user is looking at.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, Qt, QUrl, Signal
-from PySide6.QtGui import QCloseEvent, QDesktopServices, QFont
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -23,6 +25,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from benchbox_gui.services.bench_processes import BenchProcessManager
 
 
 class BenchActionRow(QWidget):
@@ -78,26 +82,33 @@ class BenchActionRow(QWidget):
 
 
 class BenchProcessPanel(QWidget):
-    """``bench start`` wrapper: process + log viewer + status label.
+    """Live view over a bench's ``bench start`` stream.
 
-    ``bench start`` runs indefinitely; we own the subprocess lifecycle here
-    so the process dies when the widget is closed / swapped out.
+    Re-subscribes on :meth:`set_bench`; no process lifecycle is owned
+    here. Ask the manager to start/stop; manager tells us when output
+    arrives, status changes, or the process exits.
     """
 
+    # Kept for API compatibility so the detail view can still flip its
+    # action buttons off the panel's signals.
     started = Signal()
     stopped = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        manager: BenchProcessManager,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
-
+        self._manager = manager
         self._bench_path: Path | None = None
-        self._process: QProcess | None = None
 
         self._status = QLabel("stopped")
         self._status.setProperty("role", "dim")
 
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
+        self._log.setMaximumBlockCount(5000)
         mono = QFont("JetBrains Mono, Fira Code, Courier New", 9)
         mono.setStyleHint(QFont.StyleHint.Monospace)
         self._log.setFont(mono)
@@ -109,90 +120,70 @@ class BenchProcessPanel(QWidget):
         layout.addWidget(self._status)
         layout.addWidget(self._log, 1)
 
+        # Subscribe once to the manager. We filter in each slot by the
+        # currently-displayed bench; signals for other benches are ignored.
+        manager.output_appended.connect(self._on_output_appended)
+        manager.status_changed.connect(self._on_status_changed)
+        manager.process_started.connect(self._on_process_started)
+        manager.process_stopped.connect(self._on_process_stopped)
+
     # ---- public API --------------------------------------------------
 
     def set_bench(self, path: Path) -> None:
-        """Change the bench this panel controls. Stops any running process."""
-        if self._process is not None:
-            self.stop()
-        self._bench_path = path
+        """Switch which bench this panel reflects. Does NOT kill anything."""
+        self._bench_path = path.resolve()
         self._log.clear()
-        self._status.setText("stopped")
+        existing = self._manager.log_of(self._bench_path)
+        if existing:
+            self._log.appendPlainText(existing)
+        self._status.setText(self._manager.status_of(self._bench_path))
+        # Sync the external "running?" signal so the action row updates.
+        if self._manager.is_running(self._bench_path):
+            self.started.emit()
+        else:
+            self.stopped.emit()
 
     def is_running(self) -> bool:
-        return (
-            self._process is not None and self._process.state() != QProcess.ProcessState.NotRunning
-        )
+        if self._bench_path is None:
+            return False
+        return self._manager.is_running(self._bench_path)
 
     def start(self) -> None:
-        if self._bench_path is None or self.is_running():
+        if self._bench_path is None:
             return
-        self._log.clear()
-        self._status.setText(f"starting in {self._bench_path}…")
-
-        process = QProcess(self)
-        process.setWorkingDirectory(str(self._bench_path))
-        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        process.readyReadStandardOutput.connect(self._drain_output)
-        process.finished.connect(self._on_finished)
-        process.errorOccurred.connect(self._on_error)
-        self._process = process
-        # Source nvm first so watch.1 picks up Node 18 (nvm-installed)
-        # instead of the system Node 12 that ships with Ubuntu 22.04.
-        # Without this, Frappe's frontend watcher exits immediately and
-        # honcho kills every sibling process — the whole bench appears
-        # to "start then stop instantly".
-        script = (
-            'if [ -s "$HOME/.nvm/nvm.sh" ]; then '
-            'export NVM_DIR="$HOME/.nvm"; '
-            '. "$NVM_DIR/nvm.sh"; '
-            "fi; "
-            "exec bench start"
-        )
-        process.start("bash", ["-c", script])
-        self.started.emit()
+        self._manager.start(self._bench_path)
 
     def stop(self) -> None:
-        if self._process is None:
+        if self._bench_path is None:
             return
-        self._status.setText("stopping…")
-        self._process.terminate()
-        if not self._process.waitForFinished(3000):
-            self._process.kill()
-            self._process.waitForFinished(1000)
+        self._manager.stop(self._bench_path)
 
-    # ---- QProcess signal handlers -----------------------------------
+    # ---- manager signal handlers ------------------------------------
 
-    def _drain_output(self) -> None:
-        if self._process is None:
+    def _matches_current(self, path: Path) -> bool:
+        return self._bench_path is not None and path == self._bench_path
+
+    def _on_output_appended(self, path: Path, chunk: str) -> None:
+        if not self._matches_current(path):
             return
-        # QByteArray → bytes via .data(); wrapped in bytes() to satisfy stubs
-        # that declare the union as bytes|bytearray|memoryview.
-        raw = bytes(self._process.readAllStandardOutput().data())
-        chunk = raw.decode(errors="replace")
-        if chunk:
-            self._log.appendPlainText(chunk.rstrip("\n"))
-            self._status.setText("running")
+        self._log.appendPlainText(chunk)
 
-    def _on_finished(self, exit_code: int, status: QProcess.ExitStatus) -> None:
-        del status  # unused
-        self._status.setText(f"stopped (exit {exit_code})")
-        self._process = None
+    def _on_status_changed(self, path: Path, status: str) -> None:
+        if not self._matches_current(path):
+            return
+        self._status.setText(status)
+
+    def _on_process_started(self, path: Path) -> None:
+        if not self._matches_current(path):
+            return
+        # Clear whatever stale log we had showing from the previous owner.
+        self._log.clear()
+        self.started.emit()
+
+    def _on_process_stopped(self, path: Path, _exit_code: int) -> None:
+        if not self._matches_current(path):
+            return
         self.stopped.emit()
-
-    def _on_error(self, _err: QProcess.ProcessError) -> None:
-        if self._process is None:
-            return
-        self._status.setText("error — bench binary not found on PATH?")
-        self._process = None
-        self.stopped.emit()
-
-    # ---- teardown ---------------------------------------------------
-
-    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override
-        if self.is_running():
-            self.stop()
-        super().closeEvent(event)
 
 
 def open_in_file_manager(path: Path) -> bool:

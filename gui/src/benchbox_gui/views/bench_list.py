@@ -1,4 +1,4 @@
-"""Bench list — scrollable column of cards, one per discovered bench."""
+"""Bench list view — responsive card grid over all discovered benches."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QProgressDialog,
     QPushButton,
@@ -18,26 +19,47 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from benchbox_gui.services.bench_processes import BenchProcessManager
 from benchbox_gui.widgets.bench_card import BenchCard
+from benchbox_gui.widgets.card_grid import CardGrid
 from benchbox_gui.widgets.dialogs import NewBenchDialog, NewBenchValues
 from benchbox_gui.workers import OperationWorker
 
 
 class BenchListView(QWidget):
-    """Discovers benches under $HOME and renders them as cards."""
+    """Discovers benches under $HOME and renders them as cards.
+
+    Subscribes to :class:`BenchProcessManager` so the "● running" chip on
+    each card reflects real-time process state across all benches — the
+    user can tell from the list alone which benches are up, without
+    opening each one.
+    """
 
     bench_selected = Signal(Path)
     refresh_requested = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        process_manager: BenchProcessManager,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
+        self._manager = process_manager
         self._worker: OperationWorker | None = None
         self._progress: QProgressDialog | None = None
+        self._cards_by_path: dict[Path, BenchCard] = {}
+        self._filter: str = ""
 
         title = QLabel("Benches on this machine")
         title.setProperty("role", "h1")
         subtitle = QLabel("Click a card to open its detail view")
         subtitle.setProperty("role", "dim")
+
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Search by name or path…")
+        self._search.setClearButtonEnabled(True)
+        self._search.setMinimumWidth(260)
+        self._search.textChanged.connect(self._on_filter_changed)
 
         refresh = QPushButton("Refresh")
         refresh.setProperty("role", "ghost")
@@ -50,25 +72,21 @@ class BenchListView(QWidget):
         self._new_bench.clicked.connect(self._on_new_bench)
 
         header_text = QVBoxLayout()
-        header_text.setSpacing(2)
+        header_text.setSpacing(3)
         header_text.addWidget(title)
         header_text.addWidget(subtitle)
 
         header = QHBoxLayout()
+        header.setSpacing(10)
         header.addLayout(header_text, 1)
+        header.addWidget(self._search, 0, Qt.AlignmentFlag.AlignTop)
         header.addWidget(refresh, 0, Qt.AlignmentFlag.AlignTop)
         header.addWidget(self._new_bench, 0, Qt.AlignmentFlag.AlignTop)
 
-        # Cards go inside a scroll area so long lists don't force window growth.
-        self._cards_container = QWidget()
-        self._cards_layout = QVBoxLayout(self._cards_container)
-        self._cards_layout.setContentsMargins(0, 0, 0, 0)
-        self._cards_layout.setSpacing(10)
-        self._cards_layout.addStretch(1)
-
+        self._grid = CardGrid()
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
-        self._scroll.setWidget(self._cards_container)
+        self._scroll.setWidget(self._grid)
         self._scroll.setFrameShape(self._scroll.Shape.NoFrame)
 
         self._empty = QLabel(
@@ -79,12 +97,24 @@ class BenchListView(QWidget):
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty.setWordWrap(True)
 
+        self._no_results = QLabel()
+        self._no_results.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._no_results.setProperty("role", "dim")
+        self._no_results.setVisible(False)
+
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 16)
-        root.setSpacing(14)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(16)
         root.addLayout(header)
         root.addWidget(self._scroll, 1)
+        root.addWidget(self._no_results)
         root.addWidget(self._empty)
+
+        # Subscribe once — running chips stay in sync across start/stop
+        # regardless of whether the user is looking at the list or a
+        # detail view.
+        self._manager.process_started.connect(self._on_process_started)
+        self._manager.process_stopped.connect(self._on_process_stopped)
 
         self.refresh()
 
@@ -92,38 +122,72 @@ class BenchListView(QWidget):
 
     @property
     def card_count(self) -> int:
-        """Count of BenchCards currently in the layout (excludes the stretch)."""
-        count = 0
-        for i in range(self._cards_layout.count()):
-            item = self._cards_layout.itemAt(i)
-            if item is not None and item.widget() is not None:
-                count += 1
-        return count
-
-    def _clear_cards(self) -> None:
-        while self._cards_layout.count() > 0:
-            item = self._cards_layout.takeAt(0)
-            if item is None:
-                break
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
-        self._cards_layout.addStretch(1)
+        return self._grid.card_count()
 
     def refresh(self) -> None:
-        self._clear_cards()
         paths = discovery.discover_benches()
+        self._cards_by_path = {}
+        cards: list[QWidget] = []
         for path in paths:
             info = introspect.introspect(path)
-            card = BenchCard(info)
+            card = BenchCard(info, running=self._manager.is_running(path))
             card.opened.connect(self.bench_selected.emit)
-            self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
+            self._cards_by_path[info.path] = card
+            cards.append(card)
+        self._grid.set_cards(cards)
 
         has_benches = bool(paths)
         self._scroll.setVisible(has_benches)
         self._empty.setVisible(not has_benches)
+        self._apply_filter()
         self.refresh_requested.emit()
+
+    # --- filter ------------------------------------------------------
+
+    def _on_filter_changed(self, text: str) -> None:
+        self._filter = text.strip().lower()
+        self._apply_filter()
+
+    def _apply_filter(self) -> None:
+        if not self._cards_by_path:
+            self._no_results.setVisible(False)
+            return
+
+        needle = self._filter
+        matched = 0
+        for path, card in self._cards_by_path.items():
+            if not needle:
+                card.setVisible(True)
+                matched += 1
+                continue
+            hay = f"{path.name} {path!s}".lower()
+            visible = needle in hay
+            card.setVisible(visible)
+            if visible:
+                matched += 1
+
+        # Only show the "no results for X" label when the filter is
+        # actually narrowing something; an empty search that matches
+        # everything shouldn't swap the empty-state label in.
+        if self._filter and matched == 0:
+            self._no_results.setText(f"<p>No benches match <b>{self._filter}</b>.</p>")
+            self._no_results.setVisible(True)
+            self._scroll.setVisible(False)
+        else:
+            self._no_results.setVisible(False)
+            self._scroll.setVisible(bool(self._cards_by_path))
+
+    # --- manager signals --------------------------------------------
+
+    def _on_process_started(self, path: Path) -> None:
+        card = self._cards_by_path.get(path)
+        if card is not None:
+            card.set_running(True)
+
+    def _on_process_stopped(self, path: Path, _exit_code: int) -> None:
+        card = self._cards_by_path.get(path)
+        if card is not None:
+            card.set_running(False)
 
     # --- new-bench flow -----------------------------------------------
 
@@ -131,8 +195,7 @@ class BenchListView(QWidget):
         dialog = NewBenchDialog(self)
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
-        values = dialog.values()
-        self._start_create_bench(values)
+        self._start_create_bench(dialog.values())
 
     def _start_create_bench(self, values: NewBenchValues) -> None:
         self._progress = QProgressDialog(self)

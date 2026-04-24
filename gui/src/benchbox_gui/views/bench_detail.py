@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from benchbox_gui.services.bench_processes import BenchProcessManager
 from benchbox_gui.widgets.bench_actions import (
     BenchActionRow,
     BenchProcessPanel,
@@ -41,7 +42,11 @@ class BenchDetailView(QWidget):
 
     back_requested = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        process_manager: BenchProcessManager,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._current_path: Path | None = None
         self._worker: OperationWorker | None = None
@@ -66,7 +71,10 @@ class BenchDetailView(QWidget):
         self._actions.new_site_requested.connect(self._on_new_site)
         self._actions.get_app_requested.connect(self._on_get_app)
 
-        self._process = BenchProcessPanel()
+        # Process panel is now a subscriber to the shared manager; it
+        # doesn't own the QProcess, so switching benches / going back
+        # doesn't kill anything.
+        self._process = BenchProcessPanel(process_manager)
         self._process.started.connect(lambda: self._actions.set_running(True))
         self._process.stopped.connect(lambda: self._actions.set_running(False))
 

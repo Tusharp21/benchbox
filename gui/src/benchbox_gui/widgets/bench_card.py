@@ -28,12 +28,20 @@ class BenchCard(QFrame):
     """Renders a ``BenchInfo`` as a clickable card.
 
     Emits ``opened(Path)`` when the user clicks the 'Open' button or
-    anywhere on the card body.
+    anywhere on the card body. A tiny green chip appears in the title
+    row when the bench is running so the user knows at a glance what's
+    up without opening each card.
     """
 
     opened = Signal(Path)
 
-    def __init__(self, info: BenchInfo, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        info: BenchInfo,
+        *,
+        running: bool = False,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._info = info
         self.setObjectName("BenchCard")
@@ -42,6 +50,14 @@ class BenchCard(QFrame):
 
         title = QLabel(info.path.name)
         title.setProperty("role", "h2")
+
+        # Running indicator — hidden by default; flipped by ``set_running``.
+        self._running_chip = QLabel("● running")
+        self._running_chip.setStyleSheet(
+            "background-color: #1a7f37; color: #ffffff; "
+            "border-radius: 10px; padding: 2px 10px; font-size: 9pt; font-weight: 600;"
+        )
+        self._running_chip.setVisible(running)
 
         subtitle = QLabel(str(info.path))
         subtitle.setProperty("role", "dim")
@@ -53,12 +69,19 @@ class BenchCard(QFrame):
         open_btn.setMinimumWidth(84)
         open_btn.clicked.connect(self._emit_opened)
 
-        title_row = QHBoxLayout()
-        title_row.setSpacing(12)
+        title_line = QHBoxLayout()
+        title_line.setSpacing(8)
+        title_line.addWidget(title)
+        title_line.addWidget(self._running_chip)
+        title_line.addStretch(1)
+
         title_col = QVBoxLayout()
         title_col.setSpacing(3)
-        title_col.addWidget(title)
+        title_col.addLayout(title_line)
         title_col.addWidget(subtitle)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(12)
         title_row.addLayout(title_col, 1)
         title_row.addWidget(open_btn, 0, Qt.AlignmentFlag.AlignTop)
 
@@ -91,3 +114,12 @@ class BenchCard(QFrame):
 
     def _emit_opened(self) -> None:
         self.opened.emit(self._info.path)
+
+    # --- running indicator --------------------------------------------
+
+    @property
+    def bench_path(self) -> Path:
+        return self._info.path
+
+    def set_running(self, running: bool) -> None:
+        self._running_chip.setVisible(running)
