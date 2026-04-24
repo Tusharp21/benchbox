@@ -29,6 +29,10 @@ benchbox-gui = "benchbox_gui.main:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/benchbox_gui"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/benchbox_gui/resources/style.qss" = "benchbox_gui/resources/style.qss"
+"src/benchbox_gui/resources/icons" = "benchbox_gui/resources/icons"
+
 [tool.uv.sources]
 benchbox-core = { path = "../core", editable = true }
 

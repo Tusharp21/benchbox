@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QListWidget,
@@ -15,19 +15,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from benchbox_gui.resources import icon
 from benchbox_gui.views.bench_detail import BenchDetailView
 from benchbox_gui.views.bench_list import BenchListView
 from benchbox_gui.views.install import InstallerView
 from benchbox_gui.views.stats_banner import StatsBanner
 from benchbox_gui.views.stubs import AppsStub, LogsView, SettingsView, SitesStub
 
-_SIDEBAR_ENTRIES: tuple[tuple[str, str], ...] = (
-    ("Benches", "benches"),
-    ("Install", "install"),
-    ("Sites", "sites"),
-    ("Apps", "apps"),
-    ("Logs", "logs"),
-    ("Settings", "settings"),
+# (label, key, icon name) — icons resolved from benchbox_gui.resources.icons.
+_SIDEBAR_ENTRIES: tuple[tuple[str, str, str], ...] = (
+    ("Benches", "benches", "benches"),
+    ("Install", "install", "install"),
+    ("Sites", "sites", "sites"),
+    ("Apps", "apps", "apps"),
+    ("Logs", "logs", "logs"),
+    ("Settings", "settings", "settings"),
 )
 
 
@@ -37,7 +39,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("benchbox")
-        self.resize(1100, 720)
+        self.resize(1200, 760)
+        self.setMinimumSize(960, 600)
 
         self._stack = QStackedWidget()
         self._pages: dict[str, int] = {}
@@ -60,9 +63,12 @@ class MainWindow(QMainWindow):
         self._bench_detail_index = self._stack.addWidget(self._bench_detail)
 
         self._sidebar = QListWidget()
-        self._sidebar.setFixedWidth(180)
-        for label, _ in _SIDEBAR_ENTRIES:
+        self._sidebar.setObjectName("Sidebar")
+        self._sidebar.setFixedWidth(220)
+        self._sidebar.setIconSize(QSize(18, 18))
+        for label, _, icon_name in _SIDEBAR_ENTRIES:
             item = QListWidgetItem(label)
+            item.setIcon(icon(icon_name))
             item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             self._sidebar.addItem(item)
         self._sidebar.currentRowChanged.connect(self._on_sidebar_row_changed)

@@ -44,8 +44,12 @@ def test_banner_labels_update_from_snapshot(qtbot: QtBot, fake_snapshot: SystemS
     banner.refresh()
 
     # Exact formatting isn't what we're testing; just that the snapshot
-    # numbers and service names landed somewhere in the rendered labels.
+    # numbers and service states landed somewhere in the rendered labels.
     joined = "\n".join(lbl.text() for lbl in banner.findChildren(QLabel))
     assert "33.3" in joined
     assert "mariadb" in joined
-    assert "redis-server" in joined
+    # Pill is labelled "redis" (not "redis-server"); the service name lookup
+    # still goes via "redis-server" under the hood.
+    assert "redis" in joined
+    assert "active" in joined
+    assert "inactive" in joined

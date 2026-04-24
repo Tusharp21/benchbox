@@ -8,6 +8,7 @@ from benchbox_core import logs
 from PySide6.QtWidgets import QApplication
 
 from benchbox_gui.main_window import MainWindow
+from benchbox_gui.resources import stylesheet
 
 
 def main() -> int:
@@ -15,6 +16,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("benchbox")
     app.setOrganizationName("benchbox")
+    app.setStyleSheet(stylesheet())
 
     window = MainWindow()
     window.show()
