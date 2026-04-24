@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "benchbox-core"
-version = "0.0.0"
+version = "0.1.0"
 description = "Frappe bench discovery, installation, and management — shared core for CLI and GUI."
 readme = "README.md"
 requires-python = ">=3.10"

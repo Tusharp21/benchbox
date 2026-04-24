@@ -2,7 +2,7 @@
 
 > Frappe bench installer and manager for Ubuntu developers.
 
-**Status:** early development — not yet released. **Primary OS for v0.1:** Ubuntu 22.04 / 24.04. macOS support planned for a later release.
+**Status:** v0.1.0 — first public release. **Primary OS:** Ubuntu 22.04 / 24.04. macOS support planned for a later release.
 
 benchbox gives you two ways to install and manage Frappe locally:
 
@@ -15,12 +15,23 @@ Under the hood, both frontends call the same Python core library, so they never 
 
 Standard Frappe install is painful: MariaDB charset gotchas, the wkhtmltopdf patched-qt requirement, Node/Python version juggling, Redis services, and `bench init` quirks. benchbox collapses all of that into one command (or one click) and then sticks around as a dashboard for the benches it set up.
 
+## Screenshots
+
+> Drop screenshots at `docs/screenshots/` once you've taken them. Suggested set:
+
+| | |
+| :---: | :---: |
+| ![Benches view](docs/screenshots/benches.png) | ![Bench detail](docs/screenshots/bench-detail.png) |
+| Benches list with live system stats + pill-shaped service indicators | Bench detail with live log tail, Start/Stop, Open folder, New site, Get app |
+| ![Install](docs/screenshots/install.png) | ![Sites](docs/screenshots/sites.png) |
+| Installer runs every component in a background thread | Cross-bench sites view |
+
 ## Install
 
 Ubuntu 22.04 / 24.04, one command:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/<owner>/benchbox/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Tusharp21/benchbox/main/scripts/install.sh | bash
 ```
 
 That drops a per-user venv at `~/.local/share/benchbox`, creates
@@ -44,15 +55,26 @@ benchbox-uninstall
 Leaves `~/.benchbox/` (logs + saved credentials) untouched —
 `rm -rf ~/.benchbox` if you want that gone too.
 
+### Upgrade
+
+Whenever a new release lands, bump in place:
+
+```bash
+benchbox upgrade
+```
+
+That re-runs the install.sh pipeline and replaces the venv + shims. Your
+credentials and log history are untouched.
+
 ### Installing from a fork / a specific branch
 
 ```bash
 BENCHBOX_REPO=https://github.com/you/benchbox.git \
 BENCHBOX_REF=some-branch \
-  curl -sSL https://raw.githubusercontent.com/you/benchbox/some-branch/scripts/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/you/benchbox/some-branch/scripts/install.sh | bash
 ```
 
-Signed `.deb` + `.AppImage` packages are planned for Phase 6.
+Signed `.deb` + `.AppImage` packages are planned for a future release.
 
 ## Repo layout
 
@@ -73,9 +95,13 @@ docs/
 - [x] **Phase 2** — Core: installer (deps, MariaDB, Node, Redis, wkhtmltopdf)
 - [x] **Phase 3** — Core: bench/site/app operations
 - [x] **Phase 4** — CLI frontend
-- [x] **Phase 5** — Desktop GUI (PySide6 — sidebar, stats banner, bench list/detail, installer) *(core views functional; sites/apps views still stub to the CLI; needs visual polish pass)*
-- [ ] **Phase 6** — Release pipeline *(install.sh bootstrap + `.desktop` integration landed; signed `.deb` + `.AppImage` still pending)*
-- [ ] **Phase 7** — E2E tests, macOS support
+- [x] **Phase 5** — Desktop GUI (PySide6 — sidebar, stats banner, bench list/detail, installer, sites, apps, logs tail, settings, checkable-app picker in New Site)
+- [x] **Phase 6 (MVP)** — `install.sh` bootstrap + `.desktop` integration + `benchbox upgrade`. Signed `.deb` + `.AppImage` remain for a future release.
+- [ ] **Phase 7** — macOS support, other distros, auto-update detection
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 

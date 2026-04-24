@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "benchbox-gui"
-version = "0.0.0"
+version = "0.1.0"
 description = "PySide6 desktop app for benchbox — Frappe bench manager."
 readme = "README.md"
 requires-python = ">=3.10"

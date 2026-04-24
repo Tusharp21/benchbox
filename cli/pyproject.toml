@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "benchbox-cli"
-version = "0.0.0"
+version = "0.1.0"
 description = "Typer-based CLI for benchbox — installs and manages Frappe benches."
 readme = "README.md"
 requires-python = ">=3.10"
