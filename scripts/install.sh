@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-BENCHBOX_REPO="${BENCHBOX_REPO:-https://github.com/CHANGEME/benchbox.git}"
+BENCHBOX_REPO="${BENCHBOX_REPO:-https://github.com/Tusharp21/benchbox.git}"
 BENCHBOX_REF="${BENCHBOX_REF:-main}"
 BENCHBOX_SOURCE="${BENCHBOX_SOURCE:-}"
 
