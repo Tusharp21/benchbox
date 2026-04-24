@@ -149,3 +149,69 @@ def test_bench_list_card_flips_running_chip_on_manager_signals(
     # And a stop — chip goes away again.
     manager.process_stopped.emit(resolved, 0)
     assert card._running_chip.isHidden() is True  # noqa: SLF001
+
+
+def test_bench_card_url_link_appears_when_running(qtbot: QtBot, tmp_path: Path) -> None:
+    from benchbox_core.introspect import BenchInfo
+
+    info = BenchInfo(
+        path=tmp_path / "a-bench",
+        frappe_version="15.0.0",
+        python_version="3.10.12",
+        git_branch="version-15",
+        apps=[],
+        sites=[],
+        webserver_port=8080,
+    )
+    card = BenchCard(info)
+    qtbot.addWidget(card)
+
+    assert card._url_link.isHidden() is True  # noqa: SLF001
+    card.set_running(True)
+    assert card._url_link.isHidden() is False  # noqa: SLF001
+    assert "localhost:8080" in card.url
+    assert "localhost:8080" in card._url_link.text()  # noqa: SLF001
+    card.set_running(False)
+    assert card._url_link.isHidden() is True  # noqa: SLF001
+
+
+def test_bench_list_running_only_filter_hides_stopped(
+    qtbot: QtBot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    manager: BenchProcessManager,
+) -> None:
+    running_bench = tmp_path / "hot"
+    stopped_bench = tmp_path / "cold"
+    _make_bench(running_bench)
+    _make_bench(stopped_bench)
+
+    # Fake discover + manager.is_running so we can drive state without
+    # spawning real QProcesses.
+    monkeypatch.setattr(
+        "benchbox_gui.views.bench_list.discovery.discover_benches",
+        lambda **kw: [running_bench.resolve(), stopped_bench.resolve()],
+    )
+    monkeypatch.setattr(
+        manager,
+        "is_running",
+        lambda path: path.resolve() == running_bench.resolve(),
+    )
+
+    view = BenchListView(manager)
+    qtbot.addWidget(view)
+
+    cards = {c.bench_path: c for c in view.findChildren(BenchCard)}
+    assert len(cards) == 2
+    for c in cards.values():
+        assert c.isHidden() is False
+
+    # Toggle running-only: stopped bench should disappear.
+    view._running_only_toggle.setChecked(True)  # noqa: SLF001
+    assert cards[running_bench.resolve()].isHidden() is False
+    assert cards[stopped_bench.resolve()].isHidden() is True
+
+    # Untoggle restores both.
+    view._running_only_toggle.setChecked(False)  # noqa: SLF001
+    for c in cards.values():
+        assert c.isHidden() is False

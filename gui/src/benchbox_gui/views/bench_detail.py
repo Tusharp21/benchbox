@@ -120,8 +120,10 @@ class BenchDetailView(QWidget):
 
     def load(self, path: Path) -> None:
         self._current_path = path
-        self._process.set_bench(path)
         info = introspect.introspect(path)
+        # Pass the webserver port so the panel can render the right URL
+        # link (one bench uses 8000, another might use 8001, etc.).
+        self._process.set_bench(path, webserver_port=info.webserver_port)
         self._title.setText(str(info.path))
         self._meta.setText(
             "<table cellpadding='2'>"

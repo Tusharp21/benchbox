@@ -102,9 +102,17 @@ class BenchProcessPanel(QWidget):
         super().__init__(parent)
         self._manager = manager
         self._bench_path: Path | None = None
+        self._url: str = ""
 
         self._status = QLabel("stopped")
         self._status.setProperty("role", "dim")
+
+        # Live URL — shown only while the bench is running. Clickable.
+        self._url_link = QLabel()
+        self._url_link.setOpenExternalLinks(True)
+        self._url_link.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self._url_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._url_link.setVisible(False)
 
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
@@ -114,10 +122,17 @@ class BenchProcessPanel(QWidget):
         self._log.setFont(mono)
         self._log.setPlaceholderText("Bench output will appear here when you click Start bench.")
 
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(10)
+        status_row.addWidget(self._status)
+        status_row.addStretch(1)
+        status_row.addWidget(self._url_link)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        layout.addWidget(self._status)
+        layout.addLayout(status_row)
         layout.addWidget(self._log, 1)
 
         # Subscribe once to the manager. We filter in each slot by the
@@ -129,16 +144,28 @@ class BenchProcessPanel(QWidget):
 
     # ---- public API --------------------------------------------------
 
-    def set_bench(self, path: Path) -> None:
-        """Switch which bench this panel reflects. Does NOT kill anything."""
+    def set_bench(self, path: Path, *, webserver_port: int = 8000) -> None:
+        """Switch which bench this panel reflects. Does NOT kill anything.
+
+        ``webserver_port`` populates the clickable URL shown when the
+        bench is running; pass ``info.webserver_port`` from the caller.
+        """
         self._bench_path = path.resolve()
+        self._url = f"http://localhost:{webserver_port}"
+        self._url_link.setText(
+            f'<a href="{self._url}" style="color:#8250df;text-decoration:none;">↗ {self._url}</a>'
+        )
+
         self._log.clear()
         existing = self._manager.log_of(self._bench_path)
         if existing:
             self._log.appendPlainText(existing)
         self._status.setText(self._manager.status_of(self._bench_path))
+
+        running = self._manager.is_running(self._bench_path)
+        self._url_link.setVisible(running)
         # Sync the external "running?" signal so the action row updates.
-        if self._manager.is_running(self._bench_path):
+        if running:
             self.started.emit()
         else:
             self.stopped.emit()
@@ -178,11 +205,13 @@ class BenchProcessPanel(QWidget):
             return
         # Clear whatever stale log we had showing from the previous owner.
         self._log.clear()
+        self._url_link.setVisible(True)
         self.started.emit()
 
     def _on_process_stopped(self, path: Path, _exit_code: int) -> None:
         if not self._matches_current(path):
             return
+        self._url_link.setVisible(False)
         self.stopped.emit()
 
 

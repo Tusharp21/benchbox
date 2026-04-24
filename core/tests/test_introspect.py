@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from benchbox_core.introspect import (
+    DEFAULT_WEBSERVER_PORT,
     AppInfo,
     SiteInfo,
     introspect,
@@ -10,6 +11,7 @@ from benchbox_core.introspect import (
     read_git_branch,
     read_python_version,
     read_sites,
+    read_webserver_port,
 )
 
 
@@ -211,6 +213,50 @@ def test_introspect_missing_frappe_is_tolerated(tmp_path: Path) -> None:
     assert info.frappe_version is None
     assert info.git_branch is None
     assert [a.name for a in info.apps] == ["custom_app"]
+
+
+def test_read_webserver_port_defaults_when_config_missing(tmp_path: Path) -> None:
+    # No common_site_config.json at all.
+    assert read_webserver_port(tmp_path) == DEFAULT_WEBSERVER_PORT
+
+
+def test_read_webserver_port_defaults_when_key_missing(tmp_path: Path) -> None:
+    sites = tmp_path / "sites"
+    sites.mkdir()
+    (sites / "common_site_config.json").write_text(json.dumps({"other": "value"}))
+    assert read_webserver_port(tmp_path) == DEFAULT_WEBSERVER_PORT
+
+
+def test_read_webserver_port_honours_int_in_config(tmp_path: Path) -> None:
+    sites = tmp_path / "sites"
+    sites.mkdir()
+    (sites / "common_site_config.json").write_text(json.dumps({"webserver_port": 8001}))
+    assert read_webserver_port(tmp_path) == 8001
+
+
+def test_read_webserver_port_parses_string_port(tmp_path: Path) -> None:
+    # Frappe sometimes writes numeric values as strings (config-set via CLI).
+    sites = tmp_path / "sites"
+    sites.mkdir()
+    (sites / "common_site_config.json").write_text(json.dumps({"webserver_port": "8002"}))
+    assert read_webserver_port(tmp_path) == 8002
+
+
+def test_read_webserver_port_falls_back_on_malformed_json(tmp_path: Path) -> None:
+    sites = tmp_path / "sites"
+    sites.mkdir()
+    (sites / "common_site_config.json").write_text("{not json")
+    assert read_webserver_port(tmp_path) == DEFAULT_WEBSERVER_PORT
+
+
+def test_introspect_surfaces_webserver_port(tmp_path: Path) -> None:
+    bench = _make_bench(tmp_path / "b", apps_in_order=["frappe"])
+    _make_app(bench / "apps", "frappe", version="15.0.0", branch="version-15")
+    (bench / "sites" / "common_site_config.json").write_text(
+        json.dumps({"webserver_port": 8123})
+    )
+    info = introspect(bench)
+    assert info.webserver_port == 8123
 
 
 def test_siteinfo_and_appinfo_are_frozen() -> None:

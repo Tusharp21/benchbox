@@ -28,9 +28,12 @@ class BenchCard(QFrame):
     """Renders a ``BenchInfo`` as a clickable card.
 
     Emits ``opened(Path)`` when the user clicks the 'Open' button or
-    anywhere on the card body. A tiny green chip appears in the title
-    row when the bench is running so the user knows at a glance what's
-    up without opening each card.
+    anywhere on the card body (not the URL link — those open the
+    browser via ``QDesktopServices``).
+
+    When running, shows:
+    - a green "● running" chip in the title row, and
+    - a clickable ``http://localhost:<port>`` link below the subtitle.
     """
 
     opened = Signal(Path)
@@ -63,6 +66,19 @@ class BenchCard(QFrame):
         subtitle.setProperty("role", "dim")
         subtitle.setWordWrap(True)
 
+        # Live URL — visible only while the bench is running. Uses an
+        # anchor so Qt opens it in the default browser.
+        self._port = info.webserver_port
+        self._url = f"http://localhost:{self._port}"
+        self._url_link = QLabel(
+            f'<a href="{self._url}" style="color:#8250df;text-decoration:none;">↗ {self._url}</a>'
+        )
+        self._url_link.setOpenExternalLinks(True)
+        # Stop the card-wide click handler from stealing clicks on the link.
+        self._url_link.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        self._url_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._url_link.setVisible(running)
+
         open_btn = QPushButton("Open")
         open_btn.setProperty("role", "primary")
         open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -79,6 +95,7 @@ class BenchCard(QFrame):
         title_col.setSpacing(3)
         title_col.addLayout(title_line)
         title_col.addWidget(subtitle)
+        title_col.addWidget(self._url_link)
 
         title_row = QHBoxLayout()
         title_row.setSpacing(12)
@@ -121,5 +138,10 @@ class BenchCard(QFrame):
     def bench_path(self) -> Path:
         return self._info.path
 
+    @property
+    def url(self) -> str:
+        return self._url
+
     def set_running(self, running: bool) -> None:
         self._running_chip.setVisible(running)
+        self._url_link.setVisible(running)

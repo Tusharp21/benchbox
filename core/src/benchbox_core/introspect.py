@@ -18,6 +18,11 @@ from pathlib import Path
 
 _SITES_SKIP: frozenset[str] = frozenset({"assets", "__pycache__"})
 
+# Frappe's default webserver port when ``webserver_port`` isn't set in
+# sites/common_site_config.json. Matches the value hard-coded in Frappe's
+# Procfile (``bench/config/procfile.py``).
+DEFAULT_WEBSERVER_PORT: int = 8000
+
 
 @dataclass(frozen=True)
 class AppInfo:
@@ -48,6 +53,7 @@ class BenchInfo:
     git_branch: str | None
     apps: list[AppInfo]
     sites: list[SiteInfo]
+    webserver_port: int = DEFAULT_WEBSERVER_PORT
 
 
 def read_app_version(app_dir: Path) -> str | None:
@@ -139,6 +145,37 @@ def read_apps(bench_path: Path) -> list[AppInfo]:
     return result
 
 
+def read_webserver_port(bench_path: Path) -> int:
+    """Return the port ``bench start`` will listen on.
+
+    Reads ``webserver_port`` out of ``sites/common_site_config.json``;
+    falls back to :data:`DEFAULT_WEBSERVER_PORT` (8000) if the file is
+    missing or doesn't set that key. Multiple benches on the same box
+    typically each set their own ``webserver_port`` so they don't
+    collide — this is how the GUI gets the right URL to link to.
+    """
+    config_path = bench_path / "sites" / "common_site_config.json"
+    if not config_path.is_file():
+        return DEFAULT_WEBSERVER_PORT
+    try:
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return DEFAULT_WEBSERVER_PORT
+    if not isinstance(raw, dict):
+        return DEFAULT_WEBSERVER_PORT
+    value = raw.get("webserver_port")
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = int(value)
+        except ValueError:
+            return DEFAULT_WEBSERVER_PORT
+        if parsed > 0:
+            return parsed
+    return DEFAULT_WEBSERVER_PORT
+
+
 def read_sites(bench_path: Path) -> list[SiteInfo]:
     """List sites in ``bench/sites/``, excluding well-known non-site dirs."""
     sites_dir = bench_path / "sites"
@@ -194,4 +231,5 @@ def introspect(bench_path: Path) -> BenchInfo:
         git_branch=frappe_app.git_branch if frappe_app else None,
         apps=apps,
         sites=read_sites(bench_path),
+        webserver_port=read_webserver_port(bench_path),
     )

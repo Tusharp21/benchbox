@@ -8,6 +8,7 @@ from benchbox_core import bench as core_bench
 from benchbox_core import discovery, introspect
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -49,6 +50,7 @@ class BenchListView(QWidget):
         self._progress: QProgressDialog | None = None
         self._cards_by_path: dict[Path, BenchCard] = {}
         self._filter: str = ""
+        self._running_only: bool = False
 
         title = QLabel("Benches on this machine")
         title.setProperty("role", "h1")
@@ -60,6 +62,9 @@ class BenchListView(QWidget):
         self._search.setClearButtonEnabled(True)
         self._search.setMinimumWidth(260)
         self._search.textChanged.connect(self._on_filter_changed)
+
+        self._running_only_toggle = QCheckBox("Running only")
+        self._running_only_toggle.toggled.connect(self._on_running_only_toggled)
 
         refresh = QPushButton("Refresh")
         refresh.setProperty("role", "ghost")
@@ -80,6 +85,7 @@ class BenchListView(QWidget):
         header.setSpacing(10)
         header.addLayout(header_text, 1)
         header.addWidget(self._search, 0, Qt.AlignmentFlag.AlignTop)
+        header.addWidget(self._running_only_toggle, 0, Qt.AlignmentFlag.AlignTop)
         header.addWidget(refresh, 0, Qt.AlignmentFlag.AlignTop)
         header.addWidget(self._new_bench, 0, Qt.AlignmentFlag.AlignTop)
 
@@ -148,7 +154,12 @@ class BenchListView(QWidget):
         self._filter = text.strip().lower()
         self._apply_filter()
 
+    def _on_running_only_toggled(self, checked: bool) -> None:
+        self._running_only = checked
+        self._apply_filter()
+
     def _apply_filter(self) -> None:
+        """Combine text search + running-only into a single visibility pass."""
         if not self._cards_by_path:
             self._no_results.setVisible(False)
             return
@@ -156,21 +167,25 @@ class BenchListView(QWidget):
         needle = self._filter
         matched = 0
         for path, card in self._cards_by_path.items():
-            if not needle:
-                card.setVisible(True)
-                matched += 1
-                continue
-            hay = f"{path.name} {path!s}".lower()
-            visible = needle in hay
+            text_match = True if not needle else (needle in f"{path.name} {path!s}".lower())
+            running_match = True if not self._running_only else self._manager.is_running(path)
+            visible = text_match and running_match
             card.setVisible(visible)
             if visible:
                 matched += 1
 
-        # Only show the "no results for X" label when the filter is
-        # actually narrowing something; an empty search that matches
-        # everything shouldn't swap the empty-state label in.
-        if self._filter and matched == 0:
-            self._no_results.setText(f"<p>No benches match <b>{self._filter}</b>.</p>")
+        # "No matches" state fires only when at least one filter is actually
+        # narrowing; an all-clear filter that matches everything shouldn't
+        # swap the empty-state label in.
+        narrowing = bool(self._filter) or self._running_only
+        if narrowing and matched == 0:
+            bits: list[str] = []
+            if self._filter:
+                bits.append(f"matching <b>{self._filter}</b>")
+            if self._running_only:
+                bits.append("currently running")
+            criteria = " and ".join(bits)
+            self._no_results.setText(f"<p>No benches {criteria}.</p>")
             self._no_results.setVisible(True)
             self._scroll.setVisible(False)
         else:
@@ -183,11 +198,17 @@ class BenchListView(QWidget):
         card = self._cards_by_path.get(path)
         if card is not None:
             card.set_running(True)
+        if self._running_only:
+            # A bench just started — maybe it now satisfies the filter.
+            self._apply_filter()
 
     def _on_process_stopped(self, path: Path, _exit_code: int) -> None:
         card = self._cards_by_path.get(path)
         if card is not None:
             card.set_running(False)
+        if self._running_only:
+            # And a stop might now hide it from the running-only view.
+            self._apply_filter()
 
     # --- new-bench flow -----------------------------------------------
 
