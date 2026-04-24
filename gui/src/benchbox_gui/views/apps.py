@@ -93,8 +93,8 @@ class AppsView(QWidget):
         self._empty.setWordWrap(True)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 24, 32, 24)
-        root.setSpacing(20)
+        root.setContentsMargins(20, 16, 20, 16)
+        root.setSpacing(14)
         root.addLayout(header)
         root.addWidget(self._table, 1)
         root.addWidget(self._empty)

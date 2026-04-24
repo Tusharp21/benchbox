@@ -84,19 +84,22 @@ class BenchDetailView(QWidget):
 
         apps_box = QGroupBox("Apps")
         apps_layout = QVBoxLayout(apps_box)
+        apps_layout.setContentsMargins(8, 8, 8, 8)
         apps_layout.addWidget(self._apps)
 
         sites_box = QGroupBox("Sites")
         sites_layout = QVBoxLayout(sites_box)
+        sites_layout.setContentsMargins(8, 8, 8, 8)
         sites_layout.addWidget(self._sites)
 
         process_box = QGroupBox("Bench process")
         process_layout = QVBoxLayout(process_box)
+        process_layout.setContentsMargins(8, 8, 8, 8)
         process_layout.addWidget(self._process)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 24, 32, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
         layout.addLayout(header_row)
         layout.addWidget(self._title)
         layout.addWidget(self._meta)

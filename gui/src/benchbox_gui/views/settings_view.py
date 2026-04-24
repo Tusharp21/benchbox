@@ -74,7 +74,7 @@ class SettingsView(QWidget):
         header_text.addWidget(subtitle)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 24, 32, 24)
+        root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(16)
         root.addLayout(header_text)
         root.addWidget(cred_card)
