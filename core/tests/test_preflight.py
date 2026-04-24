@@ -71,13 +71,63 @@ def test_check_port_result_shape(bound_port: int) -> None:
     assert "in use" in result.message
 
 
+def test_check_port_with_expected_service_active(
+    bound_port: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Port in use + the named service is ``active`` → pass with "expected" message.
+    from benchbox_core.stats import ServiceStatus
+
+    monkeypatch.setattr(
+        "benchbox_core.stats.get_service_status",
+        lambda name: ServiceStatus(name=name, active=True, state="active"),
+    )
+    result = check_port(bound_port, expected_service="mariadb")
+    assert result.passed is True
+    assert "mariadb" in result.message
+    assert "expected" in result.message
+
+
+def test_check_port_with_expected_service_inactive(
+    bound_port: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Port in use BUT the named service is inactive → fail, with a message
+    # that makes the mismatch obvious.
+    from benchbox_core.stats import ServiceStatus
+
+    monkeypatch.setattr(
+        "benchbox_core.stats.get_service_status",
+        lambda name: ServiceStatus(name=name, active=False, state="inactive"),
+    )
+    result = check_port(bound_port, expected_service="mariadb")
+    assert result.passed is False
+    assert "inactive" in result.message
+
+
+def test_check_port_free_ignores_expected_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Don't bother asking systemctl if the port is already free.
+    calls: list[str] = []
+
+    def spy(name: str) -> object:
+        calls.append(name)
+        raise AssertionError("should not be called for a free port")
+
+    monkeypatch.setattr("benchbox_core.stats.get_service_status", spy)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    result = check_port(port, expected_service="mariadb")
+    assert result.passed is True
+    assert calls == []
+
+
 def test_check_internet_success_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Fake:
         def __enter__(self) -> "_Fake":
             return self
 
-        def __exit__(self, *a: object) -> bool:
-            return False
+        def __exit__(self, *a: object) -> None:
+            return None
 
     monkeypatch.setattr(
         "benchbox_core.preflight.socket.create_connection",

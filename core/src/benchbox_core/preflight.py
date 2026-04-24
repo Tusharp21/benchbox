@@ -20,6 +20,16 @@ import psutil
 MIN_RAM_GB: float = 4.0
 MIN_FREE_DISK_GB: float = 10.0
 DEFAULT_PORTS: tuple[int, ...] = (3306, 6379, 8000)
+
+# ``check_port`` will treat "port X in use" as a pass when the expected
+# systemd service (value) for that port (key) is reporting active. Keeps
+# the preflight honest BEFORE install (ports should be free) while not
+# yelling AFTER install (MariaDB + Redis are correctly holding them).
+EXPECTED_PORT_OWNER: dict[int, str] = {
+    3306: "mariadb",
+    6379: "redis-server",
+}
+
 INTERNET_HOST: str = "github.com"
 INTERNET_PORT: int = 443
 INTERNET_TIMEOUT_SEC: float = 3.0
@@ -77,12 +87,37 @@ def _port_in_use(port: int, host: str = "127.0.0.1") -> bool:
     return False
 
 
-def check_port(port: int) -> CheckResult:
+def check_port(port: int, *, expected_service: str | None = None) -> CheckResult:
+    """Return pass if ``port`` is free, OR if a specific service owns it.
+
+    ``expected_service`` is the systemd unit whose active state makes a
+    port-in-use condition acceptable (see :data:`EXPECTED_PORT_OWNER`).
+    Without it, any port-in-use is a fail. With it, the check queries
+    ``systemctl is-active <service>``: active → pass, inactive → fail.
+    """
     in_use = _port_in_use(port)
+    if not in_use:
+        return CheckResult(f"port:{port}", True, f"port {port} is free")
+
+    if expected_service is None:
+        return CheckResult(f"port:{port}", False, f"port {port} is in use")
+
+    # Import at call site to avoid pulling in stats.py (subprocess / psutil)
+    # on bare preflight unless we actually need it.
+    from benchbox_core.stats import get_service_status
+
+    status = get_service_status(expected_service)
+    if status.active:
+        return CheckResult(
+            f"port:{port}",
+            True,
+            f"port {port} is in use by {expected_service} (expected)",
+        )
+
     return CheckResult(
         f"port:{port}",
-        not in_use,
-        f"port {port} is {'in use' if in_use else 'free'}",
+        False,
+        f"port {port} is in use (expected {expected_service}, but service is {status.state})",
     )
 
 
@@ -119,7 +154,8 @@ def run_preflight(
         check_ram(min_ram_gb),
         check_disk(disk_path, min_free_disk_gb),
     ]
-    checks.extend(check_port(p) for p in ports)
+    for p in ports:
+        checks.append(check_port(p, expected_service=EXPECTED_PORT_OWNER.get(p)))
     if network:
         checks.append(check_internet())
     checks.append(check_sudo())

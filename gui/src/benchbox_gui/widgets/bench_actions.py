@@ -137,7 +137,19 @@ class BenchProcessPanel(QWidget):
         process.finished.connect(self._on_finished)
         process.errorOccurred.connect(self._on_error)
         self._process = process
-        process.start("bench", ["start"])
+        # Source nvm first so watch.1 picks up Node 18 (nvm-installed)
+        # instead of the system Node 12 that ships with Ubuntu 22.04.
+        # Without this, Frappe's frontend watcher exits immediately and
+        # honcho kills every sibling process — the whole bench appears
+        # to "start then stop instantly".
+        script = (
+            'if [ -s "$HOME/.nvm/nvm.sh" ]; then '
+            'export NVM_DIR="$HOME/.nvm"; '
+            '. "$NVM_DIR/nvm.sh"; '
+            "fi; "
+            "exec bench start"
+        )
+        process.start("bash", ["-c", script])
         self.started.emit()
 
     def stop(self) -> None:
