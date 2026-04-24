@@ -87,3 +87,91 @@ def create_bench(
         raise BenchCreationError(result)
 
     return BenchCreateResult(command=result, info=introspect(path))
+
+
+# --- per-site ops (migrate / backup / restore) --------------------------
+
+
+class BenchSiteOperationError(RuntimeError):
+    """Raised when a wrapped per-site ``bench`` command exits non-zero."""
+
+    def __init__(self, operation: str, result: CommandResult) -> None:
+        super().__init__(
+            f"`bench {operation}` failed (exit {result.returncode}): "
+            f"{result.stderr.strip() or result.stdout.strip() or 'no output'}"
+        )
+        self.operation = operation
+        self.result = result
+
+
+def migrate_site(
+    bench_path: Path,
+    site_name: str,
+    *,
+    runner: CommandRunner | None = None,
+) -> CommandResult:
+    """Run ``bench --site <site> migrate``; re-applies schema changes.
+
+    Typical after ``bench get-app`` of a new version. Raises on non-zero
+    exit; returns the :class:`CommandResult` on success (or dry-run).
+    """
+    active = runner if runner is not None else CommandRunner()
+    result = active.run(
+        ["bench", "--site", site_name, "migrate"],
+        cwd=bench_path,
+    )
+    if result.executed and result.returncode != 0:
+        raise BenchSiteOperationError("migrate", result)
+    return result
+
+
+def backup_site(
+    bench_path: Path,
+    site_name: str,
+    *,
+    with_files: bool = False,
+    runner: CommandRunner | None = None,
+) -> CommandResult:
+    """Run ``bench --site <site> backup [--with-files]``.
+
+    Produces a DB dump under ``<bench>/sites/<site>/private/backups/`` and
+    (with ``with_files=True``) tars the site's public+private files too.
+    """
+    active = runner if runner is not None else CommandRunner()
+    argv: list[str] = ["bench", "--site", site_name, "backup"]
+    if with_files:
+        argv.append("--with-files")
+    result = active.run(argv, cwd=bench_path)
+    if result.executed and result.returncode != 0:
+        raise BenchSiteOperationError("backup", result)
+    return result
+
+
+def restore_site(
+    bench_path: Path,
+    site_name: str,
+    *,
+    sql_path: Path,
+    db_root_password: str,
+    runner: CommandRunner | None = None,
+) -> CommandResult:
+    """Run ``bench --site <site> restore <sql_path> --db-root-password <pw>``.
+
+    Overwrites the site's DB with the supplied dump. Admin password on the
+    restored site stays whatever it was at dump time — adjust via
+    ``bench set-admin-password`` after if you need a fresh one.
+    """
+    active = runner if runner is not None else CommandRunner()
+    argv: list[str] = [
+        "bench",
+        "--site",
+        site_name,
+        "restore",
+        str(sql_path),
+        "--db-root-password",
+        db_root_password,
+    ]
+    result = active.run(argv, cwd=bench_path)
+    if result.executed and result.returncode != 0:
+        raise BenchSiteOperationError("restore", result)
+    return result
