@@ -8,6 +8,7 @@ from benchbox_core.app import (
     AppOperationError,
     get_app,
     install_app,
+    remove_app,
     uninstall_app,
 )
 from benchbox_core.installer._run import CommandResult, CommandRunner
@@ -252,6 +253,46 @@ def test_uninstall_app_raises_on_nonzero_exit(tmp_path: Path) -> None:
         uninstall_app(bench, "s.local", "erpnext", runner=runner)
 
     assert excinfo.value.operation == "uninstall-app"
+
+
+# --- remove_app ---------------------------------------------------
+
+
+def test_remove_app_argv_shape_and_cwd(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    runner = CapturingRunner(returncode=0)
+
+    remove_app(bench, "erpnext", runner=runner)
+
+    argv, cwd = runner.calls[0]
+    assert argv[:3] == ("bench", "remove-app", "erpnext")
+    assert "--no-backup" not in argv
+    assert "--force" not in argv
+    assert cwd == str(bench)
+
+
+def test_remove_app_flag_forwarding(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    runner = CapturingRunner(returncode=0)
+
+    remove_app(bench, "erpnext", no_backup=True, force=True, runner=runner)
+
+    argv = runner.calls[0][0]
+    assert "--no-backup" in argv
+    assert "--force" in argv
+
+
+def test_remove_app_raises_on_failure(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    runner = CapturingRunner(returncode=1)
+
+    with pytest.raises(AppOperationError) as excinfo:
+        remove_app(bench, "erpnext", runner=runner)
+
+    assert excinfo.value.operation == "remove-app"
 
 
 def test_site_config_is_not_required_for_app_ops(tmp_path: Path) -> None:

@@ -55,6 +55,11 @@ class UninstallAppResult:
     command: CommandResult
 
 
+@dataclass(frozen=True)
+class RemoveAppResult:
+    command: CommandResult
+
+
 def get_app(
     bench_path: Path,
     git_url: str,
@@ -153,3 +158,34 @@ def uninstall_app(
         raise AppOperationError("uninstall-app", result)
 
     return UninstallAppResult(command=result)
+
+
+def remove_app(
+    bench_path: Path,
+    app: str,
+    *,
+    no_backup: bool = False,
+    force: bool = False,
+    runner: CommandRunner | None = None,
+) -> RemoveAppResult:
+    """Remove ``app`` from a bench's ``apps/`` directory via ``bench remove-app``.
+
+    Distinct from :func:`uninstall_app` — that only detaches an app from a
+    specific site's DB. ``remove_app`` yanks the whole app out of the bench
+    so ``bench get-app`` is what gets it back. ``bench remove-app`` will
+    refuse to run while any site still has the app installed unless
+    ``force=True``.
+    """
+    argv: list[str] = ["bench", "remove-app", app]
+    if no_backup:
+        argv.append("--no-backup")
+    if force:
+        argv.append("--force")
+
+    active = runner if runner is not None else CommandRunner()
+    result = active.run(argv, cwd=bench_path)
+
+    if result.executed and result.returncode != 0:
+        raise AppOperationError("remove-app", result)
+
+    return RemoveAppResult(command=result)

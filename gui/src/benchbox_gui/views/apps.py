@@ -1,4 +1,4 @@
-"""Apps tab — per-bench apps list + get/install/uninstall actions."""
+"""Apps tab — per-bench app cards with per-card uninstall / remove actions."""
 
 from __future__ import annotations
 
@@ -10,23 +10,23 @@ from benchbox_core import discovery, introspect
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
-    QHeaderView,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QProgressDialog,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from benchbox_gui.widgets.app_card import AppCard
 from benchbox_gui.widgets.dialogs import (
     GetAppDialog,
     GetAppValues,
     InstallAppDialog,
     InstallAppValues,
-    confirm,
+    TypedNameConfirmDialog,
 )
 from benchbox_gui.workers import OperationWorker
 
@@ -38,7 +38,7 @@ class _Row:
 
 
 class AppsView(QWidget):
-    """Lists apps per bench + get/install/uninstall actions."""
+    """Lists every (bench, app) as a card with per-card actions."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -49,22 +49,19 @@ class AppsView(QWidget):
 
         title = QLabel("Apps")
         title.setProperty("role", "h1")
-        subtitle = QLabel("Apps registered per bench (across all benches)")
+        subtitle = QLabel("Apps registered across every bench on this machine")
         subtitle.setProperty("role", "dim")
 
         refresh = QPushButton("Refresh")
         refresh.setProperty("role", "ghost")
         refresh.clicked.connect(self.refresh)
 
-        get_app = QPushButton("+ Get app")
-        get_app.setProperty("role", "primary")
-        get_app.clicked.connect(self._on_get_app)
+        get_app_btn = QPushButton("+ Get app")
+        get_app_btn.setProperty("role", "primary")
+        get_app_btn.clicked.connect(self._on_get_app)
 
-        install = QPushButton("Install on site")
-        install.clicked.connect(self._on_install_app)
-
-        uninstall = QPushButton("Uninstall from site")
-        uninstall.clicked.connect(self._on_uninstall_app)
+        install_btn = QPushButton("Install on site")
+        install_btn.clicked.connect(self._on_install_app)
 
         header_text = QVBoxLayout()
         header_text.setSpacing(2)
@@ -74,16 +71,19 @@ class AppsView(QWidget):
         header = QHBoxLayout()
         header.addLayout(header_text, 1)
         header.addWidget(refresh, 0, Qt.AlignmentFlag.AlignTop)
-        header.addWidget(uninstall, 0, Qt.AlignmentFlag.AlignTop)
-        header.addWidget(install, 0, Qt.AlignmentFlag.AlignTop)
-        header.addWidget(get_app, 0, Qt.AlignmentFlag.AlignTop)
+        header.addWidget(install_btn, 0, Qt.AlignmentFlag.AlignTop)
+        header.addWidget(get_app_btn, 0, Qt.AlignmentFlag.AlignTop)
 
-        self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["bench", "app", "version", "branch"])
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._cards_container = QWidget()
+        self._cards_layout = QVBoxLayout(self._cards_container)
+        self._cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._cards_layout.setSpacing(10)
+        self._cards_layout.addStretch(1)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setWidget(self._cards_container)
+        self._scroll.setFrameShape(self._scroll.Shape.NoFrame)
 
         self._empty = QLabel(
             "<p>No apps registered yet.</p>"
@@ -96,31 +96,52 @@ class AppsView(QWidget):
         root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(14)
         root.addLayout(header)
-        root.addWidget(self._table, 1)
+        root.addWidget(self._scroll, 1)
         root.addWidget(self._empty)
 
         self.refresh()
 
     # --- data --------------------------------------------------------
 
+    @property
+    def card_count(self) -> int:
+        count = 0
+        for i in range(self._cards_layout.count()):
+            item = self._cards_layout.itemAt(i)
+            if item is not None and item.widget() is not None:
+                count += 1
+        return count
+
+    def _clear_cards(self) -> None:
+        while self._cards_layout.count() > 0:
+            item = self._cards_layout.takeAt(0)
+            if item is None:
+                break
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._cards_layout.addStretch(1)
+
     def refresh(self) -> None:
-        self._bench_cache = {p: introspect.introspect(p) for p in discovery.discover_benches()}
+        self._bench_cache = {
+            p: introspect.introspect(p) for p in discovery.discover_benches()
+        }
         self._rows = [
             _Row(bench_path=info.path, app=app)
             for info in self._bench_cache.values()
             for app in info.apps
         ]
 
-        self._table.setRowCount(0)
+        self._clear_cards()
         for row in self._rows:
-            r = self._table.rowCount()
-            self._table.insertRow(r)
-            self._table.setItem(r, 0, QTableWidgetItem(str(row.bench_path)))
-            self._table.setItem(r, 1, QTableWidgetItem(row.app.name))
-            self._table.setItem(r, 2, QTableWidgetItem(row.app.version or "-"))
-            self._table.setItem(r, 3, QTableWidgetItem(row.app.git_branch or "-"))
+            card = AppCard(row.bench_path, row.app)
+            card.uninstall_requested.connect(self._on_uninstall_requested)
+            card.remove_requested.connect(self._on_remove_requested)
+            self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
+
         has_rows = bool(self._rows)
-        self._table.setVisible(has_rows)
+        self._scroll.setVisible(has_rows)
         self._empty.setVisible(not has_rows)
 
     def _benches(self) -> list[Path]:
@@ -132,16 +153,7 @@ class AppsView(QWidget):
     def _apps_by_bench(self) -> dict[Path, list[str]]:
         return {path: [a.name for a in info.apps] for path, info in self._bench_cache.items()}
 
-    def _selected_row(self) -> _Row | None:
-        selection = self._table.selectedItems()
-        if not selection:
-            return None
-        idx = selection[0].row()
-        if 0 <= idx < len(self._rows):
-            return self._rows[idx]
-        return None
-
-    # --- actions -----------------------------------------------------
+    # --- actions: get / install -------------------------------------
 
     def _on_get_app(self) -> None:
         benches = self._benches()
@@ -165,13 +177,10 @@ class AppsView(QWidget):
         if not self._bench_cache:
             QMessageBox.information(self, "No benches", "Create a bench first.")
             return
-        sel = self._selected_row()
         dialog = InstallAppDialog(
             self._sites_by_bench(),
             self._apps_by_bench(),
             parent=self,
-            preselect_bench=sel.bench_path if sel is not None else None,
-            preselect_app=sel.app.name if sel is not None else None,
         )
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
@@ -190,48 +199,81 @@ class AppsView(QWidget):
 
         self._spawn(op, success_msg=f"Installed {', '.join(values.apps)} on {values.site_name}.")
 
-    def _on_uninstall_app(self) -> None:
-        row = self._selected_row()
-        if row is None:
-            QMessageBox.information(self, "No selection", "Select an app row first.")
-            return
-        if row.app.name == "frappe":
-            QMessageBox.warning(
-                self, "Cannot uninstall frappe", "frappe is required on every bench."
+    # --- actions: uninstall from site (per-card) --------------------
+
+    def _on_uninstall_requested(self, bench_path: Path, app_name: str) -> None:
+        bench_info = self._bench_cache.get(bench_path)
+        if bench_info is None or not bench_info.sites:
+            QMessageBox.information(
+                self,
+                "No sites",
+                f"{bench_path} has no sites to uninstall {app_name} from.",
             )
             return
-        # Ask which site to uninstall from.
-        bench_info = self._bench_cache.get(row.bench_path)
-        if bench_info is None or not bench_info.sites:
-            QMessageBox.information(self, "No sites", "This bench has no sites to uninstall from.")
-            return
-        from PySide6.QtWidgets import QInputDialog
 
         site_names = [s.name for s in bench_info.sites]
         site, ok = QInputDialog.getItem(
             self,
             "Uninstall app",
-            f"Uninstall {row.app.name} from which site?",
+            f"Uninstall <b>{app_name}</b> from which site on <code>{bench_path}</code>?",
             site_names,
             0,
             False,
         )
         if not ok or not site:
             return
-        if not confirm(
-            self,
-            "Uninstall app",
-            f"Remove <b>{row.app.name}</b> from <b>{site}</b>?",
-            destructive=True,
-        ):
+
+        confirm_target = f"{app_name}@{site}"
+        dialog = TypedNameConfirmDialog(
+            confirm_target,
+            title="Uninstall app",
+            message=(
+                f"This detaches <b>{app_name}</b> from <b>{site}</b>, including "
+                "any data the app owns on that site. The app stays in the "
+                "bench's <code>apps/</code> directory."
+            ),
+            action_label="Uninstall",
+            parent=self,
+        )
+        if dialog.exec() != dialog.DialogCode.Accepted:
             return
 
-        self._open_progress(f"Uninstalling {row.app.name} from {site}…")
+        self._start_uninstall_app(bench_path, site, app_name)
+
+    def _start_uninstall_app(self, bench_path: Path, site: str, app_name: str) -> None:
+        self._open_progress(f"Uninstalling {app_name} from {site}…")
 
         def op() -> core_app.UninstallAppResult:
-            return core_app.uninstall_app(row.bench_path, site, row.app.name)
+            return core_app.uninstall_app(bench_path, site, app_name)
 
-        self._spawn(op, success_msg=f"Uninstalled {row.app.name} from {site}.")
+        self._spawn(op, success_msg=f"Uninstalled {app_name} from {site}.")
+
+    # --- actions: remove from bench (per-card) ----------------------
+
+    def _on_remove_requested(self, bench_path: Path, app_name: str) -> None:
+        dialog = TypedNameConfirmDialog(
+            app_name,
+            title="Remove app from bench",
+            message=(
+                f"This removes <b>{app_name}</b> entirely from <code>{bench_path}</code>. "
+                "Sites that still have it installed will continue to work at runtime, "
+                "but <code>bench get-app</code> is what puts it back. This can't be undone."
+            ),
+            action_label="Remove from bench",
+            parent=self,
+        )
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+
+        self._start_remove_app(bench_path, app_name)
+
+    def _start_remove_app(self, bench_path: Path, app_name: str) -> None:
+        self._open_progress(f"Removing {app_name} from bench…")
+
+        def op() -> core_app.RemoveAppResult:
+            return core_app.remove_app(bench_path, app_name)
+
+        self._spawn(op, success_msg=f"Removed {app_name} from bench.")
 
     # --- worker plumbing --------------------------------------------
 
