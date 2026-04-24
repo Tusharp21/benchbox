@@ -1,8 +1,8 @@
-"""Placeholder views for sidebar entries we haven't built out yet.
+"""Remaining placeholder views (Logs + Settings).
 
-Keeping them here (vs. separate files each) because they're all the same
-'here's the info + a hint to use the CLI' pattern and there's no value in
-one-file-per-stub until they grow real logic.
+Sites and Apps used to stub to CLI text here; they're now fully functional
+widgets in ``views/sites.py`` and ``views/apps.py``. Logs + Settings are
+still minimal — a later release will expand them.
 """
 
 from __future__ import annotations
@@ -10,39 +10,6 @@ from __future__ import annotations
 from benchbox_core import credentials, logs
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
-
-
-class SitesStub(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.addWidget(
-            QLabel(
-                "<h2>Sites</h2>"
-                "<p>Per-site management lands in a later release. For now, use the CLI:</p>"
-                "<pre>benchbox site new &lt;bench&gt; &lt;site&gt;\n"
-                "benchbox site drop &lt;bench&gt; &lt;site&gt;</pre>"
-                "<p>Existing sites are listed under each bench's detail view.</p>"
-            )
-        )
-        layout.addStretch(1)
-
-
-class AppsStub(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.addWidget(
-            QLabel(
-                "<h2>Apps</h2>"
-                "<p>App management lands in a later release. For now, use the CLI:</p>"
-                "<pre>benchbox app get &lt;bench&gt; &lt;git-url&gt;\n"
-                "benchbox app install &lt;bench&gt; &lt;site&gt; &lt;app&gt;\n"
-                "benchbox app uninstall &lt;bench&gt; &lt;site&gt; &lt;app&gt;</pre>"
-                "<p>Apps installed per-bench are listed under each bench's detail view.</p>"
-            )
-        )
-        layout.addStretch(1)
 
 
 class LogsView(QWidget):

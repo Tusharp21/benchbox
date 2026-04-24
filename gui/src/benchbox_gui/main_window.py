@@ -16,11 +16,13 @@ from PySide6.QtWidgets import (
 )
 
 from benchbox_gui.resources import icon
+from benchbox_gui.views.apps import AppsView
 from benchbox_gui.views.bench_detail import BenchDetailView
 from benchbox_gui.views.bench_list import BenchListView
 from benchbox_gui.views.install import InstallerView
+from benchbox_gui.views.sites import SitesView
 from benchbox_gui.views.stats_banner import StatsBanner
-from benchbox_gui.views.stubs import AppsStub, LogsView, SettingsView, SitesStub
+from benchbox_gui.views.stubs import LogsView, SettingsView
 
 # (label, key, icon name) — icons resolved from benchbox_gui.resources.icons.
 _SIDEBAR_ENTRIES: tuple[tuple[str, str, str], ...] = (
@@ -54,8 +56,8 @@ class MainWindow(QMainWindow):
 
         self._register_page("benches", self._bench_list)
         self._register_page("install", self._installer)
-        self._register_page("sites", SitesStub())
-        self._register_page("apps", AppsStub())
+        self._register_page("sites", SitesView())
+        self._register_page("apps", AppsView())
         self._register_page("logs", LogsView())
         self._register_page("settings", SettingsView())
         # Detail view is not a sidebar entry; it's a transient page behind

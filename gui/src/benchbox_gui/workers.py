@@ -7,7 +7,8 @@ and surfaces progress via Qt signals.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 from benchbox_core.installer import (
     CommandRunner,
@@ -17,6 +18,34 @@ from benchbox_core.installer import (
     InstallResult,
 )
 from PySide6.QtCore import QThread, Signal
+
+
+class OperationWorker(QThread):
+    """Run a no-arg callable off the UI thread; emit result or exception.
+
+    Used for the handful of single-shot core calls the GUI needs to spawn
+    without blocking the event loop: ``create_bench``, ``create_site``,
+    ``drop_site``, ``get_app``, ``install_app``, ``uninstall_app``.
+
+    Callers build a lambda that closes over the real args and then hook
+    into ``succeeded(object)`` (the return value) or ``failed(object)``
+    (the exception). Both signals fire on the UI thread.
+    """
+
+    succeeded = Signal(object)
+    failed = Signal(object)
+
+    def __init__(self, operation: Callable[[], Any]) -> None:
+        super().__init__()
+        self._operation = operation
+
+    def run(self) -> None:
+        try:
+            result = self._operation()
+        except Exception as exc:  # noqa: BLE001 — surface anything the op raises
+            self.failed.emit(exc)
+            return
+        self.succeeded.emit(result)
 
 
 class InstallWorker(QThread):
