@@ -42,7 +42,7 @@ docs/
 
 - [x] **Phase 0** — Foundation (scaffold, CI, license, templates)
 - [x] **Phase 1** — Core: discovery + introspection + live stats
-- [ ] **Phase 2** — Core: installer (deps, MariaDB, Node, Redis, wkhtmltopdf) *(in progress: apt base deps + runner scaffolding landed)*
+- [x] **Phase 2** — Core: installer (deps, MariaDB, Node, Redis, wkhtmltopdf)
 - [ ] **Phase 3** — Core: bench/site/app operations
 - [ ] **Phase 4** — CLI frontend
 - [ ] **Phase 5** — Tauri GUI

@@ -24,6 +24,7 @@ from benchbox_core.installer.mariadb import MariaDBComponent
 from benchbox_core.installer.node import NodeComponent
 from benchbox_core.installer.redis import RedisComponent
 from benchbox_core.installer.runner import install
+from benchbox_core.installer.wkhtmltopdf import WkhtmltopdfComponent
 
 __all__ = [
     "AptComponent",
@@ -38,5 +39,6 @@ __all__ = [
     "RedisComponent",
     "Step",
     "StepResult",
+    "WkhtmltopdfComponent",
     "install",
 ]
