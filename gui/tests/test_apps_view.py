@@ -28,9 +28,7 @@ def _make_bench_with_app(
     if not (apps_dir / "frappe").is_dir() and app_name != "frappe":
         frappe_dir = apps_dir / "frappe" / "frappe"
         frappe_dir.mkdir(parents=True, exist_ok=True)
-        (frappe_dir / "__init__.py").write_text(
-            '__version__ = "15.0.0"\n', encoding="utf-8"
-        )
+        (frappe_dir / "__init__.py").write_text('__version__ = "15.0.0"\n', encoding="utf-8")
     sites_dir = bench_path / "sites"
     sites_dir.mkdir(parents=True, exist_ok=True)
     apps_txt = sites_dir / "apps.txt"
@@ -72,9 +70,7 @@ def test_app_card_emits_uninstall_and_remove(qtbot: QtBot, tmp_path: Path) -> No
     assert removes == [(tmp_path / "bench", "erpnext")]
 
 
-def test_app_card_frappe_has_disabled_destructive_buttons(
-    qtbot: QtBot, tmp_path: Path
-) -> None:
+def test_app_card_frappe_has_disabled_destructive_buttons(qtbot: QtBot, tmp_path: Path) -> None:
     from PySide6.QtWidgets import QPushButton
 
     card = AppCard(tmp_path, AppInfo(name=FRAPPE_APP_NAME, version="15.0.0", git_branch="main"))

@@ -124,9 +124,7 @@ class AppsView(QWidget):
         self._cards_layout.addStretch(1)
 
     def refresh(self) -> None:
-        self._bench_cache = {
-            p: introspect.introspect(p) for p in discovery.discover_benches()
-        }
+        self._bench_cache = {p: introspect.introspect(p) for p in discovery.discover_benches()}
         self._rows = [
             _Row(bench_path=info.path, app=app)
             for info in self._bench_cache.values()
