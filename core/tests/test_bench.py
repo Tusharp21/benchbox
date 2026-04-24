@@ -37,6 +37,7 @@ class CapturingRunner(CommandRunner):
         command: list[str] | tuple[str, ...],
         *,
         input: str | None = None,
+        cwd: str | Path | None = None,
         check: bool = False,
         timeout: float | None = None,
     ) -> CommandResult:

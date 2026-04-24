@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from benchbox_core.installer._run import CommandResult, CommandRunner
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from benchbox_core.installer.wkhtmltopdf import (
     UBUNTU_PACKAGE,
     WKHTMLTOPDF_VERSION,
@@ -61,6 +66,7 @@ class FixedRunner(CommandRunner):
         command: list[str] | tuple[str, ...],
         *,
         input: str | None = None,
+        cwd: str | Path | None = None,
         check: bool = False,
         timeout: float | None = None,
     ) -> CommandResult:
@@ -205,6 +211,7 @@ class ScriptedRunner(CommandRunner):
         command: list[str] | tuple[str, ...],
         *,
         input: str | None = None,
+        cwd: str | Path | None = None,
         check: bool = False,
         timeout: float | None = None,
     ) -> CommandResult:

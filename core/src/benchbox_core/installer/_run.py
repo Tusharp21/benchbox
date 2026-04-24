@@ -14,6 +14,7 @@ from __future__ import annotations
 import shlex
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from benchbox_core.logs import get_logger
 
@@ -56,6 +57,7 @@ class CommandRunner:
         command: list[str] | tuple[str, ...],
         *,
         input: str | None = None,
+        cwd: str | Path | None = None,
         check: bool = False,
         timeout: float | None = None,
     ) -> CommandResult:
@@ -63,17 +65,20 @@ class CommandRunner:
         pretty = shlex.join(argv)
 
         if self.dry_run:
-            suffix = " (with stdin)" if input is not None else ""
-            _log.info("[dry-run] %s%s", pretty, suffix)
+            stdin_suffix = " (with stdin)" if input is not None else ""
+            cwd_suffix = f" [cwd={cwd}]" if cwd is not None else ""
+            _log.info("[dry-run] %s%s%s", pretty, stdin_suffix, cwd_suffix)
             result = CommandResult(argv, 0, "", "", executed=False)
             self._history.append(result)
             return result
 
-        _log.info("$ %s", pretty)
+        cwd_suffix = f" [cwd={cwd}]" if cwd is not None else ""
+        _log.info("$ %s%s", pretty, cwd_suffix)
         try:
             proc = subprocess.run(  # noqa: S603  # argv list, never shell=True
                 argv,
                 input=input,
+                cwd=cwd,
                 capture_output=True,
                 text=True,
                 timeout=timeout,

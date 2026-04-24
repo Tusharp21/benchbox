@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from benchbox_core.installer._run import CommandResult, CommandRunner
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from benchbox_core.installer.bench_cli import (
     FRAPPE_BENCH_PIPX_NAME,
     PIPX_PACKAGE,
@@ -31,6 +35,7 @@ class FakeProbeRunner(CommandRunner):
         command: list[str] | tuple[str, ...],
         *,
         input: str | None = None,
+        cwd: str | Path | None = None,
         check: bool = False,
         timeout: float | None = None,
     ) -> CommandResult:
@@ -147,6 +152,7 @@ class ScriptedRunner(CommandRunner):
         command: list[str] | tuple[str, ...],
         *,
         input: str | None = None,
+        cwd: str | Path | None = None,
         check: bool = False,
         timeout: float | None = None,
     ) -> CommandResult:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 
 from benchbox_core.installer._run import CommandResult, CommandRunner
 from benchbox_core.installer.apt import BASE_PACKAGES, AptComponent
@@ -18,6 +19,7 @@ class FakeProbeRunner(CommandRunner):
         command: list[str] | tuple[str, ...],
         *,
         input: str | None = None,
+        cwd: str | Path | None = None,
         check: bool = False,
         timeout: float | None = None,
     ) -> CommandResult:
@@ -118,6 +120,7 @@ class ScriptedApplyRunner(CommandRunner):
         command: list[str] | tuple[str, ...],
         *,
         input: str | None = None,
+        cwd: str | Path | None = None,
         check: bool = False,
         timeout: float | None = None,
     ) -> CommandResult:
