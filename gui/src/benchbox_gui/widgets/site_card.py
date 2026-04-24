@@ -26,8 +26,8 @@ class _Badge(QLabel):
 class SiteCard(QFrame):
     """Renders a ``SiteInfo`` + its bench path, with a destructive Drop action.
 
-    Emits ``drop_requested(bench_path, site_name)``. Cards are static —
-    there's no site-detail view to open — so only the Drop button fires.
+    Emits ``drop_requested(bench_path, site_name)``. Cards are static — no
+    site-detail view to open — so only the Drop button fires.
     """
 
     drop_requested = Signal(Path, str)
@@ -53,26 +53,27 @@ class SiteCard(QFrame):
 
         drop_btn = QPushButton("Drop")
         drop_btn.setProperty("role", "danger")
+        drop_btn.setMinimumWidth(84)
         drop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         drop_btn.clicked.connect(self._emit_drop)
 
         title_col = QVBoxLayout()
-        title_col.setSpacing(2)
+        title_col.setSpacing(3)
         title_col.addWidget(name)
         title_col.addWidget(bench_path_label)
 
         title_row = QHBoxLayout()
+        title_row.setSpacing(12)
         title_row.addLayout(title_col, 1)
         title_row.addWidget(drop_btn, 0, Qt.AlignmentFlag.AlignTop)
 
-        # Badges: db name + apps. Cap at 4 visible to keep card height
-        # bounded; overflow becomes a "+N" chip.
+        # Cap visible app chips at 3 — cards get tall fast otherwise.
         badges = QHBoxLayout()
-        badges.setSpacing(6)
+        badges.setSpacing(8)
         if site.db_name:
             badges.addWidget(_Badge(f"db: {site.db_name}", accent=True))
         badges.addWidget(_Badge(f"{len(site.installed_apps)} apps"))
-        visible = list(site.installed_apps[:4])
+        visible = list(site.installed_apps[:3])
         hidden = max(0, len(site.installed_apps) - len(visible))
         for app in visible:
             badges.addWidget(_Badge(app))
@@ -81,8 +82,8 @@ class SiteCard(QFrame):
         badges.addStretch(1)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 14, 16, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(22, 20, 22, 20)
+        root.setSpacing(14)
         root.addLayout(title_row)
         root.addLayout(badges)
 

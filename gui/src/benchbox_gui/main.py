@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from benchbox_core import logs
+from benchbox_core import logs, preferences
 from PySide6.QtWidgets import QApplication
 
 from benchbox_gui.main_window import MainWindow
@@ -16,7 +16,8 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("benchbox")
     app.setOrganizationName("benchbox")
-    app.setStyleSheet(stylesheet())
+    # Load saved theme (defaults to dark on first run).
+    app.setStyleSheet(stylesheet(preferences.get_theme()))
 
     window = MainWindow()
     window.show()

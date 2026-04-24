@@ -40,7 +40,6 @@ class BenchCard(QFrame):
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Title row: bench name (from path) + "Open →" button
         title = QLabel(info.path.name)
         title.setProperty("role", "h2")
 
@@ -51,11 +50,13 @@ class BenchCard(QFrame):
         open_btn = QPushButton("Open")
         open_btn.setProperty("role", "primary")
         open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        open_btn.setMinimumWidth(84)
         open_btn.clicked.connect(self._emit_opened)
 
         title_row = QHBoxLayout()
+        title_row.setSpacing(12)
         title_col = QVBoxLayout()
-        title_col.setSpacing(2)
+        title_col.setSpacing(3)
         title_col.addWidget(title)
         title_col.addWidget(subtitle)
         title_row.addLayout(title_col, 1)
@@ -63,20 +64,22 @@ class BenchCard(QFrame):
 
         # Badges row: frappe version, python, branch, site/app counts
         badges = QHBoxLayout()
-        badges.setSpacing(6)
+        badges.setSpacing(8)
         if info.frappe_version:
             badges.addWidget(_Badge(f"frappe {info.frappe_version}", accent=True))
         if info.python_version:
             badges.addWidget(_Badge(f"py {info.python_version}"))
         if info.git_branch:
             badges.addWidget(_Badge(info.git_branch))
-        badges.addWidget(_Badge(f"{len(info.sites)} site{'' if len(info.sites) == 1 else 's'}"))
-        badges.addWidget(_Badge(f"{len(info.apps)} app{'' if len(info.apps) == 1 else 's'}"))
+        sites_n = len(info.sites)
+        apps_n = len(info.apps)
+        badges.addWidget(_Badge(f"{sites_n} site{'' if sites_n == 1 else 's'}"))
+        badges.addWidget(_Badge(f"{apps_n} app{'' if apps_n == 1 else 's'}"))
         badges.addStretch(1)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(12)
+        root.setContentsMargins(22, 20, 22, 20)
+        root.setSpacing(14)
         root.addLayout(title_row)
         root.addLayout(badges)
 

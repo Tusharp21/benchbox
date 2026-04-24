@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from benchbox_core import preferences
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
@@ -15,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from benchbox_gui.resources import icon
+from benchbox_gui.resources import icon, stylesheet
 from benchbox_gui.views.apps import AppsView
 from benchbox_gui.views.bench_detail import BenchDetailView
 from benchbox_gui.views.bench_list import BenchListView
@@ -45,6 +47,8 @@ class MainWindow(QMainWindow):
         self.resize(1200, 760)
         self.setMinimumSize(960, 600)
 
+        self._theme: preferences.Theme = preferences.get_theme()
+
         self._stack = QStackedWidget()
         self._pages: dict[str, int] = {}
 
@@ -71,18 +75,19 @@ class MainWindow(QMainWindow):
         self._sidebar.setIconSize(QSize(18, 18))
         for label, _, icon_name in _SIDEBAR_ENTRIES:
             item = QListWidgetItem(label)
-            item.setIcon(icon(icon_name))
+            item.setIcon(icon(icon_name, theme=self._theme))
             item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             self._sidebar.addItem(item)
         self._sidebar.currentRowChanged.connect(self._on_sidebar_row_changed)
 
-        stats_banner = StatsBanner()
+        self._stats_banner = StatsBanner()
+        self._stats_banner.theme_toggled.connect(self._on_theme_toggled)
 
         center = QWidget()
         center_layout = QVBoxLayout(center)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(0)
-        center_layout.addWidget(stats_banner)
+        center_layout.addWidget(self._stats_banner)
         center_layout.addWidget(self._stack, 1)
 
         root = QWidget()
@@ -110,3 +115,29 @@ class MainWindow(QMainWindow):
     def _on_bench_selected(self, path: Path) -> None:
         self._bench_detail.load(path)
         self._stack.setCurrentIndex(self._bench_detail_index)
+
+    # --- theme -------------------------------------------------------
+
+    def _on_theme_toggled(self, theme: str) -> None:
+        """Handle a click on the stats-banner theme button.
+
+        Swaps the application stylesheet live, re-tints sidebar icons for
+        the new palette, and persists the choice so the next launch opens
+        in the same theme.
+        """
+        if theme not in ("dark", "light"):
+            return
+        typed_theme: preferences.Theme = "light" if theme == "light" else "dark"
+        self._theme = typed_theme
+
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            app.setStyleSheet(stylesheet(typed_theme))
+
+        # Re-tint sidebar icons so they stay legible on the new palette.
+        for row, (_, _, icon_name) in enumerate(_SIDEBAR_ENTRIES):
+            item = self._sidebar.item(row)
+            if item is not None:
+                item.setIcon(icon(icon_name, theme=typed_theme))
+
+        preferences.set_theme(typed_theme)

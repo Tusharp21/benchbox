@@ -44,8 +44,11 @@ class InstallerView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        self._title = QLabel("<h2>Install</h2>")
+        self._title = QLabel("Install")
+        self._title.setProperty("role", "h1")
         self._os = QLabel()
+        self._os.setProperty("role", "dim")
+
         self._preflight = QTableWidget(0, 3)
         self._preflight.setHorizontalHeaderLabels(["check", "state", "details"])
         self._preflight.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
@@ -65,23 +68,55 @@ class InstallerView(QWidget):
         controls = QHBoxLayout()
         self._dry_run = QCheckBox("Dry run (preview only)")
         self._run = QPushButton("Run install")
+        self._run.setProperty("role", "primary")
         self._run.clicked.connect(self._on_run_clicked)
         controls.addWidget(self._dry_run)
         controls.addStretch(1)
         controls.addWidget(self._run)
 
+        preflight_header = QLabel("Preflight")
+        preflight_header.setProperty("role", "h2")
+        components_header = QLabel("Components")
+        components_header.setProperty("role", "h2")
+
+        header_text = QVBoxLayout()
+        header_text.setSpacing(3)
+        header_text.addWidget(self._title)
+        header_text.addWidget(self._os)
+
         layout = QVBoxLayout(self)
-        layout.addWidget(self._title)
-        layout.addWidget(self._os)
-        layout.addWidget(QLabel("<b>Preflight</b>"))
-        layout.addWidget(self._preflight, 1)
-        layout.addWidget(QLabel("<b>Components</b>"))
-        layout.addWidget(self._components, 1)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(14)
+        layout.addLayout(header_text)
+        layout.addWidget(preflight_header)
+        # Fixed (content-sized) heights instead of stretch=1: no yawning
+        # empty space below a sparse table.
+        layout.addWidget(self._preflight)
+        layout.addWidget(components_header)
+        layout.addWidget(self._components)
         layout.addWidget(self._progress)
         layout.addLayout(controls)
+        layout.addStretch(1)
 
         self._worker: InstallWorker | None = None
         self._populate_preflight()
+        self._recompute_table_heights()
+
+    def _recompute_table_heights(self) -> None:
+        """Size each install-view table to exactly fit its content.
+
+        Prevents the huge empty black void in the screenshots: ``stretch=1``
+        made Qt give both tables as much vertical real estate as it had,
+        even when they held 7 rows.
+        """
+        for table in (self._preflight, self._components):
+            header = table.horizontalHeader().height()
+            rows_h = sum(table.rowHeight(r) for r in range(table.rowCount()))
+            # Keep a minimum of one row of empty space so an empty
+            # components table (before Run install) still looks like a
+            # table, not a 0-px sliver.
+            rows_h = max(rows_h, 36)
+            table.setFixedHeight(header + rows_h + 4)
 
     # ------------------------------------------------------------------
 
@@ -154,6 +189,7 @@ class InstallerView(QWidget):
             self._components.insertRow(row)
             self._components.setItem(row, 0, QTableWidgetItem(component.name))
             self._components.setItem(row, 1, QTableWidgetItem("queued"))
+        self._recompute_table_heights()
 
         self._run.setEnabled(False)
         self._progress.setVisible(True)

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from benchbox_gui.widgets.app_card import AppCard
+from benchbox_gui.widgets.card_grid import CardGrid
 from benchbox_gui.widgets.dialogs import (
     GetAppDialog,
     GetAppValues,
@@ -74,15 +75,10 @@ class AppsView(QWidget):
         header.addWidget(install_btn, 0, Qt.AlignmentFlag.AlignTop)
         header.addWidget(get_app_btn, 0, Qt.AlignmentFlag.AlignTop)
 
-        self._cards_container = QWidget()
-        self._cards_layout = QVBoxLayout(self._cards_container)
-        self._cards_layout.setContentsMargins(0, 0, 0, 0)
-        self._cards_layout.setSpacing(10)
-        self._cards_layout.addStretch(1)
-
+        self._grid = CardGrid()
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
-        self._scroll.setWidget(self._cards_container)
+        self._scroll.setWidget(self._grid)
         self._scroll.setFrameShape(self._scroll.Shape.NoFrame)
 
         self._empty = QLabel(
@@ -93,8 +89,8 @@ class AppsView(QWidget):
         self._empty.setWordWrap(True)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 16)
-        root.setSpacing(14)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(16)
         root.addLayout(header)
         root.addWidget(self._scroll, 1)
         root.addWidget(self._empty)
@@ -105,23 +101,7 @@ class AppsView(QWidget):
 
     @property
     def card_count(self) -> int:
-        count = 0
-        for i in range(self._cards_layout.count()):
-            item = self._cards_layout.itemAt(i)
-            if item is not None and item.widget() is not None:
-                count += 1
-        return count
-
-    def _clear_cards(self) -> None:
-        while self._cards_layout.count() > 0:
-            item = self._cards_layout.takeAt(0)
-            if item is None:
-                break
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
-        self._cards_layout.addStretch(1)
+        return self._grid.card_count()
 
     def refresh(self) -> None:
         self._bench_cache = {p: introspect.introspect(p) for p in discovery.discover_benches()}
@@ -131,12 +111,13 @@ class AppsView(QWidget):
             for app in info.apps
         ]
 
-        self._clear_cards()
+        cards: list[QWidget] = []
         for row in self._rows:
             card = AppCard(row.bench_path, row.app)
             card.uninstall_requested.connect(self._on_uninstall_requested)
             card.remove_requested.connect(self._on_remove_requested)
-            self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
+            cards.append(card)
+        self._grid.set_cards(cards)
 
         has_rows = bool(self._rows)
         self._scroll.setVisible(has_rows)
