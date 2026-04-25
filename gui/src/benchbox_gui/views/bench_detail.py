@@ -103,20 +103,15 @@ class BenchDetailView(QWidget):
 
         apps_box = QGroupBox("Apps")
         apps_layout = QVBoxLayout(apps_box)
-        apps_layout.setContentsMargins(8, 8, 8, 8)
+        apps_layout.setContentsMargins(12, 12, 12, 12)
         apps_layout.addWidget(self._apps_grid)
-        apps_box.setMinimumHeight(340)
+        apps_box.setMinimumHeight(220)
 
         sites_box = QGroupBox("Sites")
         sites_layout = QVBoxLayout(sites_box)
-        sites_layout.setContentsMargins(8, 8, 8, 8)
+        sites_layout.setContentsMargins(12, 12, 12, 12)
         sites_layout.addWidget(self._sites_grid)
-        sites_box.setMinimumHeight(340)
-
-        apps_sites_row = QHBoxLayout()
-        apps_sites_row.setSpacing(12)
-        apps_sites_row.addWidget(apps_box, 1)
-        apps_sites_row.addWidget(sites_box, 1)
+        sites_box.setMinimumHeight(220)
 
         process_box = QGroupBox("Bench process")
         process_layout = QVBoxLayout(process_box)
@@ -133,7 +128,8 @@ class BenchDetailView(QWidget):
         content_layout.addWidget(self._meta)
         content_layout.addWidget(self._actions)
         content_layout.addWidget(process_box)
-        content_layout.addLayout(apps_sites_row)
+        content_layout.addWidget(apps_box)
+        content_layout.addWidget(sites_box)
         content_layout.addStretch(1)
 
         scroll = QScrollArea()

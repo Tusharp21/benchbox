@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -32,11 +33,12 @@ class _Row:
 
 
 class AppsView(QWidget):
-    """Read-only list of every (bench, app)."""
+    """Read-only list of every (bench, app), with name/path search."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._rows: list[_Row] = []
+        self._filter: str = ""
 
         title = QLabel("Apps")
         title.setProperty("role", "h1")
@@ -46,6 +48,11 @@ class AppsView(QWidget):
         )
         subtitle.setProperty("role", "dim")
         subtitle.setWordWrap(True)
+
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("🔍  Filter by app name or bench path…")
+        self._search.setClearButtonEnabled(True)
+        self._search.textChanged.connect(self._on_filter_changed)
 
         refresh = QPushButton("Refresh")
         refresh.setProperty("role", "ghost")
@@ -58,6 +65,7 @@ class AppsView(QWidget):
 
         header = QHBoxLayout()
         header.addLayout(header_text, 1)
+        header.addWidget(self._search, 1, Qt.AlignmentFlag.AlignTop)
         header.addWidget(refresh, 0, Qt.AlignmentFlag.AlignTop)
 
         self._grid = CardGrid()
@@ -66,13 +74,7 @@ class AppsView(QWidget):
         self._scroll.setWidget(self._grid)
         self._scroll.setFrameShape(self._scroll.Shape.NoFrame)
 
-        self._empty = QLabel(
-            "<p>No apps registered yet.</p>"
-            "<p style='color:#a9a9c4;'>"
-            "Open a bench from the Benches tab and use "
-            "<b>+ Get app</b> or <b>+ New app</b> to add one."
-            "</p>"
-        )
+        self._empty = QLabel()
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty.setWordWrap(True)
 
@@ -96,12 +98,39 @@ class AppsView(QWidget):
             for info in bench_cache.values()
             for app in info.apps
         ]
+        self._render()
 
+    def _on_filter_changed(self, text: str) -> None:
+        self._filter = text.strip().lower()
+        self._render()
+
+    def _render(self) -> None:
+        visible = [r for r in self._rows if self._matches(r)]
         cards: list[QWidget] = [
-            AppCard(row.bench_path, row.app, read_only=True) for row in self._rows
+            AppCard(row.bench_path, row.app, read_only=True) for row in visible
         ]
         self._grid.set_cards(cards)
 
-        has_rows = bool(self._rows)
-        self._scroll.setVisible(has_rows)
-        self._empty.setVisible(not has_rows)
+        has_any = bool(self._rows)
+        has_match = bool(visible)
+        self._scroll.setVisible(has_match)
+        self._empty.setVisible(not has_match)
+        if not has_any:
+            self._empty.setText(
+                "<p>No apps registered yet.</p>"
+                "<p style='color:#a9a9c4;'>"
+                "Open a bench from the Benches tab and use "
+                "<b>+ Get app</b> or <b>+ New app</b> to add one."
+                "</p>"
+            )
+        elif not has_match:
+            self._empty.setText(
+                f"<p>No apps match <b>{self._filter}</b>.</p>"
+                "<p style='color:#a9a9c4;'>Try a different search term or clear the filter.</p>"
+            )
+
+    def _matches(self, row: _Row) -> bool:
+        if not self._filter:
+            return True
+        haystack = f"{row.app.name}\n{row.bench_path}".lower()
+        return all(token in haystack for token in self._filter.split())

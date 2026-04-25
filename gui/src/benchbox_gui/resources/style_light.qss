@@ -31,14 +31,17 @@ QLabel[role="h1"] {
     font-weight: 700;
     color: #1f2328;
     padding: 0px;
+    background: transparent;
 }
 QLabel[role="h2"] {
     font-size: 15pt;
     font-weight: 600;
     color: #1f2328;
+    background: transparent;
 }
 QLabel[role="dim"] {
     color: #656d76;
+    background: transparent;
 }
 QLabel[role="kbd"] {
     background-color: #f6f8fa;
