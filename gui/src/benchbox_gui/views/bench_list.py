@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from benchbox_core import bench as core_bench
 from benchbox_core import discovery, introspect
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -14,7 +13,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QProgressDialog,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -24,8 +22,7 @@ from PySide6.QtWidgets import (
 from benchbox_gui.services.bench_processes import BenchProcessManager
 from benchbox_gui.widgets.bench_card import BenchCard
 from benchbox_gui.widgets.card_grid import CardGrid
-from benchbox_gui.widgets.dialogs import NewBenchDialog, NewBenchValues
-from benchbox_gui.workers import OperationWorker
+from benchbox_gui.widgets.dialogs import NewBenchDialog
 
 
 class BenchListView(QWidget):
@@ -47,8 +44,6 @@ class BenchListView(QWidget):
     ) -> None:
         super().__init__(parent)
         self._manager = process_manager
-        self._worker: OperationWorker | None = None
-        self._progress: QProgressDialog | None = None
         self._cards_by_path: dict[Path, BenchCard] = {}
         self._filter: str = ""
         self._running_only: bool = False
@@ -227,49 +222,8 @@ class BenchListView(QWidget):
     # --- new-bench flow -----------------------------------------------
 
     def _on_new_bench(self) -> None:
+        # NewBenchDialog is a LiveLogDialog: it owns the worker and the
+        # log panel, so we just refresh the list when it returns Accepted.
         dialog = NewBenchDialog(self)
-        if dialog.exec() != dialog.DialogCode.Accepted:
-            return
-        self._start_create_bench(dialog.values())
-
-    def _start_create_bench(self, values: NewBenchValues) -> None:
-        self._progress = QProgressDialog(self)
-        self._progress.setLabelText(
-            f"Creating bench at {values.path}…\nThis can take several minutes."
-        )
-        self._progress.setWindowTitle("Creating bench")
-        self._progress.setMinimum(0)
-        self._progress.setMaximum(0)
-        self._progress.setMinimumDuration(0)
-        self._progress.setCancelButton(None)
-        self._progress.show()
-
-        def op() -> core_bench.BenchCreateResult:
-            return core_bench.create_bench(
-                values.path,
-                frappe_branch=values.frappe_branch,
-                python_bin=values.python_bin,
-            )
-
-        self._worker = OperationWorker(op)
-        self._worker.succeeded.connect(self._on_bench_created)
-        self._worker.failed.connect(self._on_bench_create_failed)
-        self._worker.start()
-
-    def _close_progress(self) -> None:
-        if self._progress is not None:
-            self._progress.close()
-            self._progress = None
-
-    def _on_bench_created(self, _result: object) -> None:
-        self._close_progress()
-        self.refresh()
-        QMessageBox.information(self, "Bench ready", "New bench created.")
-
-    def _on_bench_create_failed(self, exc: object) -> None:
-        self._close_progress()
-        QMessageBox.critical(
-            self,
-            "Bench creation failed",
-            f"{exc}\n\nCheck the session log for details.",
-        )
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self.refresh()

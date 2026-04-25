@@ -24,9 +24,7 @@ from benchbox_gui.widgets.app_card import AppCard
 from benchbox_gui.widgets.card_grid import CardGrid
 from benchbox_gui.widgets.dialogs import (
     GetAppDialog,
-    GetAppValues,
     InstallAppDialog,
-    InstallAppValues,
     TypedNameConfirmDialog,
 )
 from benchbox_gui.workers import OperationWorker
@@ -139,18 +137,12 @@ class AppsView(QWidget):
         if not benches:
             QMessageBox.information(self, "No benches", "Create a bench first.")
             return
+        # GetAppDialog is a LiveLogDialog: it owns the worker and log,
+        # so we just refresh on Accepted.
         dialog = GetAppDialog(benches, parent=self)
-        if dialog.exec() != dialog.DialogCode.Accepted:
-            return
-        self._start_get_app(dialog.values())
-
-    def _start_get_app(self, values: GetAppValues) -> None:
-        self._open_progress("Fetching app…")
-
-        def op() -> core_app.GetAppResult:
-            return core_app.get_app(values.bench_path, values.git_url, branch=values.branch)
-
-        self._spawn(op, success_msg="App fetched.")
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self._bench_cache.clear()
+            self.refresh()
 
     def _on_install_app(self) -> None:
         if not self._bench_cache:
@@ -161,22 +153,9 @@ class AppsView(QWidget):
             self._apps_by_bench(),
             parent=self,
         )
-        if dialog.exec() != dialog.DialogCode.Accepted:
-            return
-        self._start_install_app(dialog.values())
-
-    def _start_install_app(self, values: InstallAppValues) -> None:
-        self._open_progress(f"Installing {', '.join(values.apps)} on {values.site_name}…")
-
-        def op() -> core_app.InstallAppResult:
-            return core_app.install_app(
-                values.bench_path,
-                values.site_name,
-                list(values.apps),
-                force=values.force,
-            )
-
-        self._spawn(op, success_msg=f"Installed {', '.join(values.apps)} on {values.site_name}.")
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self._bench_cache.clear()
+            self.refresh()
 
     # --- actions: uninstall from site (per-card) --------------------
 

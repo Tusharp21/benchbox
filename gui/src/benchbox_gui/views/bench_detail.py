@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from benchbox_core import credentials, introspect
-from benchbox_core import site as core_site
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QGroupBox,
@@ -13,7 +12,6 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMessageBox,
-    QProgressDialog,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -33,11 +31,8 @@ from benchbox_gui.widgets.dialogs import (
     GetAppDialog,
     NewAppDialog,
     NewSiteDialog,
-    NewSiteValues,
     RestoreSiteDialog,
-    RestoreSiteValues,
 )
-from benchbox_gui.workers import OperationWorker
 
 
 class BenchDetailView(QWidget):
@@ -52,8 +47,6 @@ class BenchDetailView(QWidget):
     ) -> None:
         super().__init__(parent)
         self._current_path: Path | None = None
-        self._worker: OperationWorker | None = None
-        self._progress: QProgressDialog | None = None
 
         back = QPushButton("← back to benches")
         back.setProperty("role", "ghost")
@@ -215,40 +208,23 @@ class BenchDetailView(QWidget):
     def _on_new_site(self) -> None:
         if self._current_path is None:
             return
-        dialog = NewSiteDialog([self._current_path], preselect=self._current_path, parent=self)
-        if dialog.exec() != dialog.DialogCode.Accepted:
-            return
-        values = dialog.values()
         db_root = self._ensure_mariadb_password()
         if db_root is None:
             return
-        self._start_new_site(values, db_root)
-
-    def _start_new_site(self, values: NewSiteValues, db_root: str) -> None:
-        self._open_progress(f"Creating site {values.site_name}…")
-
-        def op() -> core_site.SiteCreateResult:
-            return core_site.create_site(
-                values.bench_path,
-                values.site_name,
-                db_root_password=db_root,
-                admin_password=values.admin_password,
-                install_apps=values.install_apps,
-                set_default=values.set_default,
-            )
-
-        self._spawn_worker(
-            op,
-            on_success=lambda _r: self._on_mutation_success(f"Site {values.site_name!r} created."),
-            on_failure=lambda e: self._on_mutation_failed("Site creation failed", e),
+        # NewSiteDialog is a LiveLogDialog: it owns the worker, so we
+        # only refresh on Accepted (op finished cleanly).
+        dialog = NewSiteDialog(
+            [self._current_path],
+            db_root_password=db_root,
+            preselect=self._current_path,
+            parent=self,
         )
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self.load(self._current_path)
 
     def _on_get_app(self) -> None:
         if self._current_path is None:
             return
-        # The dialog hosts its own log + worker + status row; we only
-        # need to refresh the bench detail once it returns Accepted
-        # (operation finished cleanly). Rejected = cancel or failure.
         dialog = GetAppDialog([self._current_path], preselect=self._current_path, parent=self)
         if dialog.exec() == dialog.DialogCode.Accepted:
             self.load(self._current_path)
@@ -272,76 +248,15 @@ class BenchDetailView(QWidget):
                 "This bench has no sites to restore into. Create a site first.",
             )
             return
-        dialog = RestoreSiteDialog(
-            {self._current_path: sites},
-            parent=self,
-            preselect_bench=self._current_path,
-        )
-        if dialog.exec() != dialog.DialogCode.Accepted:
-            return
         db_root = self._ensure_mariadb_password()
         if db_root is None:
             return
-        self._start_restore_site(dialog.values(), db_root)
-
-    def _start_restore_site(self, values: RestoreSiteValues, db_root: str) -> None:
-        self._open_progress(f"Restoring {values.site_name} from {values.sql_path.name}…")
-
-        def op() -> core_site.SiteRestoreResult:
-            return core_site.restore_site(
-                values.bench_path,
-                values.site_name,
-                values.sql_path,
-                db_root_password=db_root,
-                admin_password=values.admin_password,
-                with_public_files=values.with_public_files,
-                with_private_files=values.with_private_files,
-                force=values.force,
-            )
-
-        self._spawn_worker(
-            op,
-            on_success=lambda _r: self._on_mutation_success(
-                f"Site {values.site_name!r} restored."
-            ),
-            on_failure=lambda e: self._on_mutation_failed("Restore failed", e),
+        dialog = RestoreSiteDialog(
+            {self._current_path: sites},
+            db_root_password=db_root,
+            parent=self,
+            preselect_bench=self._current_path,
         )
-
-    # --- worker plumbing ---------------------------------------------
-
-    def _open_progress(self, message: str) -> None:
-        self._progress = QProgressDialog(self)
-        self._progress.setLabelText(message)
-        self._progress.setWindowTitle("Working…")
-        self._progress.setMinimum(0)
-        self._progress.setMaximum(0)
-        self._progress.setMinimumDuration(0)
-        self._progress.setCancelButton(None)
-        self._progress.show()
-
-    def _close_progress(self) -> None:
-        if self._progress is not None:
-            self._progress.close()
-            self._progress = None
-
-    def _spawn_worker(
-        self,
-        op: object,
-        *,
-        on_success: object,
-        on_failure: object,
-    ) -> None:
-        self._worker = OperationWorker(op)  # type: ignore[arg-type]
-        self._worker.succeeded.connect(on_success)
-        self._worker.failed.connect(on_failure)
-        self._worker.start()
-
-    def _on_mutation_success(self, message: str) -> None:
-        self._close_progress()
-        if self._current_path is not None:
+        if dialog.exec() == dialog.DialogCode.Accepted:
             self.load(self._current_path)
-        QMessageBox.information(self, "Done", message)
 
-    def _on_mutation_failed(self, title: str, exc: object) -> None:
-        self._close_progress()
-        QMessageBox.critical(self, title, f"{exc}")

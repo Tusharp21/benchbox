@@ -42,6 +42,167 @@ from PySide6.QtWidgets import (
 
 from benchbox_gui.workers import StreamingOpWorker
 
+# --- LiveLogDialog (shared base for any op that wants live output) ----
+
+
+class LiveLogDialog(QDialog):
+    """Dialog with form → live log → close transitions and an embedded worker.
+
+    Subclass contract:
+    - In ``__init__``, build form widgets and pass them through
+      :meth:`set_form_layout` along with a primary-button label.
+    - Override :meth:`_collect_values` to validate the form and return a
+      values dataclass (or ``None`` after showing a warning yourself).
+    - Override :meth:`_build_op` to return a callable taking a
+      ``line_callback`` and running the core operation.
+    - Optionally override :meth:`_success_text` / :meth:`_running_text`
+      for nicer status copy.
+
+    The base owns the log panel, status row, primary/cancel buttons,
+    StreamingOpWorker, and lifecycle. Subclasses stay focused on the
+    form + the op factory.
+    """
+
+    def __init__(
+        self,
+        *,
+        title: str,
+        primary_text: str,
+        parent: QWidget | None = None,
+        min_size: tuple[int, int] = (720, 540),
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumSize(*min_size)
+
+        self._worker: StreamingOpWorker | None = None
+        self._values: object | None = None
+        self._primary_default_text: str = primary_text
+
+        self._form_holder = QWidget()  # placeholder; subclass replaces via set_form_layout
+
+        self._status = QLabel()
+        self._status.setProperty("role", "dim")
+        self._status.setVisible(False)
+
+        self._log = QPlainTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMaximumBlockCount(10_000)
+        mono = QFont("JetBrains Mono, Fira Code, Courier New", 9)
+        mono.setStyleHint(QFont.StyleHint.Monospace)
+        self._log.setFont(mono)
+        self._log.setVisible(False)
+
+        self._primary = QPushButton(primary_text)
+        self._primary.setProperty("role", "primary")
+        self._primary.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._primary.clicked.connect(self._on_primary)
+
+        self._cancel = QPushButton("Cancel")
+        self._cancel.setProperty("role", "ghost")
+        self._cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cancel.clicked.connect(self.reject)
+
+        buttons_row = QHBoxLayout()
+        buttons_row.addStretch(1)
+        buttons_row.addWidget(self._cancel)
+        buttons_row.addWidget(self._primary)
+
+        self._root = QVBoxLayout(self)
+        self._root.setContentsMargins(20, 20, 20, 16)
+        self._root.setSpacing(14)
+        self._root.addWidget(self._form_holder)
+        self._root.addWidget(self._status)
+        self._root.addWidget(self._log, 1)
+        self._root.addLayout(buttons_row)
+
+    # --- subclass plumbing -----------------------------------------
+
+    def set_form_layout(self, form_layout: QFormLayout) -> None:
+        """Mount the subclass's form layout in place of the placeholder."""
+        new_holder = QWidget()
+        new_holder.setLayout(form_layout)
+        self._root.replaceWidget(self._form_holder, new_holder)
+        self._form_holder.deleteLater()
+        self._form_holder = new_holder
+
+    def set_log_placeholder(self, text: str) -> None:
+        self._log.setPlaceholderText(text)
+
+    # --- subclass hooks --------------------------------------------
+
+    def _collect_values(self) -> object | None:
+        """Validate form input, return a values object, or return None
+        (after the subclass has shown its own QMessageBox)."""
+        raise NotImplementedError
+
+    def _build_op(self, values: object) -> Callable[[Callable[[str], None]], Any]:
+        """Return a callable that runs the operation, accepting a
+        line_callback to forward to the underlying CommandRunner."""
+        raise NotImplementedError
+
+    def _success_text(self) -> str:
+        return "Done."
+
+    def _running_text(self) -> str:
+        return "Working…"
+
+    # --- lifecycle --------------------------------------------------
+
+    def values(self) -> object:
+        """The values used to launch the op (set after primary click)."""
+        if self._values is None:
+            raise RuntimeError("values() called before the operation started")
+        return self._values
+
+    def _on_primary(self) -> None:
+        # Two roles: launch the op (when no worker yet) or close-as-accepted.
+        if self._worker is None:
+            self._start_op()
+        else:
+            self.accept()
+
+    def _start_op(self) -> None:
+        values = self._collect_values()
+        if values is None:
+            return
+        self._values = values
+
+        self._form_holder.setEnabled(False)
+        self._log.setVisible(True)
+        self._status.setVisible(True)
+        self._status.setText(self._running_text())
+        self._primary.setEnabled(False)
+        self._primary.setText("Working…")
+        self._cancel.setEnabled(False)
+
+        op = self._build_op(values)
+        self._worker = StreamingOpWorker(op)
+        self._worker.line_received.connect(self._append_log)
+        self._worker.succeeded.connect(self._on_succeeded)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
+
+    def _append_log(self, line: str) -> None:
+        self._log.appendPlainText(line.rstrip("\n"))
+
+    def _on_succeeded(self, _result: object) -> None:
+        self._status.setText(f"✓ {self._success_text()}")
+        self._primary.setText("Close")
+        self._primary.setEnabled(True)
+        self._cancel.setVisible(False)
+
+    def _on_failed(self, exc: object) -> None:
+        self._status.setText(f"✗ Failed: {exc}")
+        self._primary.setText("Close")
+        self._primary.setEnabled(True)
+        # Failure → primary acts as Reject so the caller skips its
+        # "refresh on success" branch.
+        self._primary.clicked.disconnect()
+        self._primary.clicked.connect(self.reject)
+        self._cancel.setVisible(False)
+
+
 # --- NewBenchDialog ----------------------------------------------------
 
 # Preloaded into the Frappe branch combo. First entry is the default
@@ -64,13 +225,17 @@ class NewBenchValues:
     python_bin: str
 
 
-class NewBenchDialog(QDialog):
-    """Gathers the args for ``core.bench.create_bench``."""
+class NewBenchDialog(LiveLogDialog):
+    """Form → live ``bench init`` log → close."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("New bench")
-        self.setMinimumWidth(520)
+        super().__init__(
+            title="New bench",
+            primary_text="Create bench",
+            parent=parent,
+            min_size=(760, 580),
+        )
+        self.set_log_placeholder("Live `bench init` output will appear here once you click Create bench.")
 
         self._path = QLineEdit()
         self._path.setPlaceholderText(str(Path.home() / "frappe-bench"))
@@ -97,22 +262,7 @@ class NewBenchDialog(QDialog):
         form.addRow("Bench path", path_row)
         form.addRow("Frappe branch", self._branch)
         form.addRow("Python", self._python)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._try_accept)
-        buttons.rejected.connect(self.reject)
-        ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        if ok is not None:
-            ok.setText("Create bench")
-            ok.setProperty("role", "primary")
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 16)
-        root.setSpacing(16)
-        root.addLayout(form)
-        root.addWidget(buttons)
+        self.set_form_layout(form)
 
     def _on_browse(self) -> None:
         picked = QFileDialog.getExistingDirectory(self, "Choose parent directory", str(Path.home()))
@@ -120,21 +270,40 @@ class NewBenchDialog(QDialog):
             default_name = "frappe-bench"
             self._path.setText(str(Path(picked) / default_name))
 
-    def _try_accept(self) -> None:
+    def _collect_values(self) -> NewBenchValues | None:
         text = self._path.text().strip() or self._path.placeholderText()
         if not text:
             QMessageBox.warning(self, "Missing path", "Choose where to create the bench.")
-            return
-        self.accept()
-
-    def values(self) -> NewBenchValues:
-        text = self._path.text().strip() or self._path.placeholderText()
+            return None
         branch = self._branch.currentText().strip() or DEFAULT_FRAPPE_BRANCH
         return NewBenchValues(
             path=Path(text).expanduser(),
             frappe_branch=branch,
             python_bin=self._python.text().strip() or DEFAULT_PYTHON_BIN,
         )
+
+    def _build_op(self, values: object) -> Callable[[Callable[[str], None]], Any]:
+        from benchbox_core import bench as core_bench
+
+        v: NewBenchValues = values  # type: ignore[assignment]
+
+        def op(line_cb: Callable[[str], None]) -> Any:
+            return core_bench.create_bench(
+                v.path,
+                frappe_branch=v.frappe_branch,
+                python_bin=v.python_bin,
+                line_callback=line_cb,
+            )
+
+        return op
+
+    def _success_text(self) -> str:
+        v: NewBenchValues = self._values  # type: ignore[assignment]
+        return f"Bench created at {v.path}"
+
+    def _running_text(self) -> str:
+        v: NewBenchValues = self._values  # type: ignore[assignment]
+        return f"Initialising bench at {v.path} (clones Frappe + npm install — can take ~10 minutes)…"
 
 
 # --- NewSiteDialog -----------------------------------------------------
@@ -149,30 +318,33 @@ class NewSiteValues:
     set_default: bool
 
 
-class NewSiteDialog(QDialog):
-    """Gathers the args for ``core.site.create_site``.
+class NewSiteDialog(LiveLogDialog):
+    """Form → live ``bench new-site`` log → close.
 
     ``apps_by_bench`` (optional) maps each bench path to the apps available
     *in that bench*. When provided, the dialog shows a checkable list of
-    apps so the user picks by clicking rather than typing a
-    comma-separated string; ``frappe`` is hidden (always installed).
-
-    Does NOT prompt for the MariaDB root password — that's loaded from the
-    credentials store by the caller (installer.py has the same pattern).
+    apps. ``db_root_password`` is required and is loaded from the
+    credentials store by the caller — we don't prompt for it here.
     """
 
     def __init__(
         self,
         bench_paths: list[Path],
         *,
+        db_root_password: str,
         parent: QWidget | None = None,
         preselect: Path | None = None,
         apps_by_bench: dict[Path, list[str]] | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("New site")
-        self.setMinimumWidth(520)
+        super().__init__(
+            title="New site",
+            primary_text="Create site",
+            parent=parent,
+            min_size=(720, 560),
+        )
+        self.set_log_placeholder("Live `bench new-site` output will appear here once you click Create site.")
         self._apps_by_bench = apps_by_bench or {}
+        self._db_root_password = db_root_password
 
         self._bench = QComboBox()
         for path in bench_paths:
@@ -202,22 +374,7 @@ class NewSiteDialog(QDialog):
         form.addRow("Admin password", self._admin)
         form.addRow("Install apps", self._apps_list)
         form.addRow("", self._set_default)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._try_accept)
-        buttons.rejected.connect(self.reject)
-        ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        if ok is not None:
-            ok.setText("Create site")
-            ok.setProperty("role", "primary")
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 16)
-        root.setSpacing(16)
-        root.addLayout(form)
-        root.addWidget(buttons)
+        self.set_form_layout(form)
 
         if not bench_paths:
             self._bench.setEnabled(False)
@@ -230,7 +387,6 @@ class NewSiteDialog(QDialog):
         bench = self._bench.currentData()
         if bench is None:
             return
-        # frappe is implicit on every site; hide it from the install list.
         apps = [a for a in self._apps_by_bench.get(bench, []) if a != "frappe"]
         for app in apps:
             item = QListWidgetItem(app)
@@ -238,19 +394,16 @@ class NewSiteDialog(QDialog):
             item.setCheckState(Qt.CheckState.Unchecked)
             self._apps_list.addItem(item)
 
-    def _try_accept(self) -> None:
+    def _collect_values(self) -> NewSiteValues | None:
         if not self._name.text().strip():
             QMessageBox.warning(self, "Missing name", "Site name is required.")
-            return
+            return None
         if not self._admin.text():
             QMessageBox.warning(self, "Missing password", "Administrator password is required.")
-            return
+            return None
         if self._bench.currentData() is None:
             QMessageBox.warning(self, "No bench", "Create a bench first, then come back.")
-            return
-        self.accept()
-
-    def values(self) -> NewSiteValues:
+            return None
         checked: list[str] = []
         for row in range(self._apps_list.count()):
             item = self._apps_list.item(row)
@@ -264,6 +417,33 @@ class NewSiteDialog(QDialog):
             set_default=self._set_default.isChecked(),
         )
 
+    def _build_op(self, values: object) -> Callable[[Callable[[str], None]], Any]:
+        from benchbox_core import site as core_site
+
+        v: NewSiteValues = values  # type: ignore[assignment]
+        db_root = self._db_root_password
+
+        def op(line_cb: Callable[[str], None]) -> Any:
+            return core_site.create_site(
+                v.bench_path,
+                v.site_name,
+                db_root_password=db_root,
+                admin_password=v.admin_password,
+                install_apps=v.install_apps,
+                set_default=v.set_default,
+                line_callback=line_cb,
+            )
+
+        return op
+
+    def _success_text(self) -> str:
+        v: NewSiteValues = self._values  # type: ignore[assignment]
+        return f"Site {v.site_name} created."
+
+    def _running_text(self) -> str:
+        v: NewSiteValues = self._values  # type: ignore[assignment]
+        return f"Creating {v.site_name} (DB + migrate + asset build)…"
+
 
 # --- GetAppDialog ------------------------------------------------------
 
@@ -275,14 +455,8 @@ class GetAppValues:
     branch: str | None
 
 
-class GetAppDialog(QDialog):
-    """Form → live log → done, all in one window.
-
-    The dialog hosts the form, the streaming log panel, and the worker
-    itself; the parent view just opens it and refreshes when ``exec()``
-    returns ``Accepted`` (op finished cleanly). Form is hidden once the
-    worker starts so the log gets the full window height.
-    """
+class GetAppDialog(LiveLogDialog):
+    """Form → live ``bench get-app`` log → close."""
 
     def __init__(
         self,
@@ -291,14 +465,16 @@ class GetAppDialog(QDialog):
         parent: QWidget | None = None,
         preselect: Path | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Get app")
-        self.setMinimumSize(760, 560)
+        super().__init__(
+            title="Get app",
+            primary_text="Get app",
+            parent=parent,
+            min_size=(760, 560),
+        )
+        self.set_log_placeholder(
+            "Live `bench get-app` output will appear here once you click Get app."
+        )
 
-        self._worker: StreamingOpWorker | None = None
-        self._values: GetAppValues | None = None
-
-        # --- form (top, hidden once worker starts) ------------------
         self._bench = QComboBox()
         for path in bench_paths:
             self._bench.addItem(str(path), userData=path)
@@ -325,132 +501,44 @@ class GetAppDialog(QDialog):
         form.addRow("Git URL", self._url)
         form.addRow("Branch", self._branch)
         form.addRow("Token", self._token)
+        self.set_form_layout(form)
 
-        self._form_holder = QWidget()
-        self._form_holder.setLayout(form)
-
-        # --- live log panel (bottom, hidden until worker starts) ----
-        self._status = QLabel()
-        self._status.setProperty("role", "dim")
-        self._status.setVisible(False)
-
-        self._log = QPlainTextEdit()
-        self._log.setReadOnly(True)
-        self._log.setMaximumBlockCount(10_000)
-        mono = QFont("JetBrains Mono, Fira Code, Courier New", 9)
-        mono.setStyleHint(QFont.StyleHint.Monospace)
-        self._log.setFont(mono)
-        self._log.setPlaceholderText(
-            "Live `bench get-app` output will appear here once you click Get app."
-        )
-        self._log.setVisible(False)
-
-        # --- buttons -----------------------------------------------
-        self._primary = QPushButton("Get app")
-        self._primary.setProperty("role", "primary")
-        self._primary.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._primary.clicked.connect(self._on_primary)
-
-        self._cancel = QPushButton("Cancel")
-        self._cancel.setProperty("role", "ghost")
-        self._cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._cancel.clicked.connect(self.reject)
-
-        buttons_row = QHBoxLayout()
-        buttons_row.addStretch(1)
-        buttons_row.addWidget(self._cancel)
-        buttons_row.addWidget(self._primary)
-
-        # --- assemble -----------------------------------------------
-        root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 16)
-        root.setSpacing(14)
-        root.addWidget(self._form_holder)
-        root.addWidget(self._status)
-        root.addWidget(self._log, 1)
-        root.addLayout(buttons_row)
-
-    # --- public API -------------------------------------------------
-
-    def values(self) -> GetAppValues:
-        """The values used to launch the operation (set after primary click)."""
-        if self._values is None:
-            raise RuntimeError("values() called before the operation started")
-        return self._values
-
-    # --- phase transitions -----------------------------------------
-
-    def _on_primary(self) -> None:
-        # Two roles: "Get app" (start) and "Close" (finish-and-accept).
-        if self._worker is None:
-            self._start_op()
-        else:
-            self.accept()
-
-    def _start_op(self) -> None:
+    def _collect_values(self) -> GetAppValues | None:
         url = self._url.text().strip()
         if not url:
             QMessageBox.warning(self, "Missing URL", "Git URL is required.")
-            return
+            return None
         bench_path = self._bench.currentData()
         if bench_path is None:
             QMessageBox.warning(self, "No bench", "No bench available; create one first.")
-            return
-
+            return None
         branch = self._branch.text().strip() or None
         token = self._token.text().strip()
         if token:
             url = _inject_token(url, token)
-        self._values = GetAppValues(bench_path=bench_path, git_url=url, branch=branch)
+        return GetAppValues(bench_path=bench_path, git_url=url, branch=branch)
 
-        # Lock the form, reveal the log panel, swap button text.
-        self._form_holder.setEnabled(False)
-        self._log.setVisible(True)
-        self._status.setVisible(True)
-        self._status.setText(f"Fetching {url} into {bench_path}…")
-        self._primary.setEnabled(False)
-        self._primary.setText("Working…")
-        self._cancel.setEnabled(False)
-
-        # Defer the import to avoid a hard module-load cost when the dialog
-        # is just being constructed in tests.
+    def _build_op(self, values: object) -> Callable[[Callable[[str], None]], Any]:
         from benchbox_core import app as core_app
+
+        v: GetAppValues = values  # type: ignore[assignment]
 
         def op(line_cb: Callable[[str], None]) -> Any:
             return core_app.get_app(
-                self._values.bench_path,  # type: ignore[union-attr]
-                self._values.git_url,  # type: ignore[union-attr]
-                branch=self._values.branch,  # type: ignore[union-attr]
+                v.bench_path,
+                v.git_url,
+                branch=v.branch,
                 line_callback=line_cb,
             )
 
-        self._worker = StreamingOpWorker(op)
-        self._worker.line_received.connect(self._append_log)
-        self._worker.succeeded.connect(self._on_succeeded)
-        self._worker.failed.connect(self._on_failed)
-        self._worker.start()
+        return op
 
-    def _append_log(self, line: str) -> None:
-        # appendPlainText adds a trailing newline; we strip ours so we
-        # don't get blank lines between entries.
-        self._log.appendPlainText(line.rstrip("\n"))
+    def _success_text(self) -> str:
+        return "App fetched."
 
-    def _on_succeeded(self, _result: object) -> None:
-        self._status.setText("✓ App fetched successfully.")
-        self._primary.setText("Close")
-        self._primary.setEnabled(True)
-        self._primary.setProperty("role", "primary")
-        self._cancel.setVisible(False)
-
-    def _on_failed(self, exc: object) -> None:
-        self._status.setText(f"✗ Failed: {exc}")
-        self._primary.setText("Close")
-        self._primary.setEnabled(True)
-        # Closing after a failure should not mean "accepted" — caller
-        # uses the Rejected code to skip its post-success refresh.
-        self._primary.clicked.disconnect()
-        self._primary.clicked.connect(self.reject)
-        self._cancel.setVisible(False)
+    def _running_text(self) -> str:
+        v: GetAppValues = self._values  # type: ignore[assignment]
+        return f"Fetching {v.git_url} into {v.bench_path}…"
 
 
 def _inject_token(git_url: str, token: str) -> str:
@@ -489,13 +577,8 @@ class NewAppValues:
     email: str
 
 
-class NewAppDialog(QDialog):
-    """Scaffold a fresh Frappe app via ``bench new-app`` with a live log.
-
-    Same form → log → done flow as :class:`GetAppDialog`. Title /
-    publisher / email default to sensible values so the user usually only
-    needs to type the app name.
-    """
+class NewAppDialog(LiveLogDialog):
+    """Form → live ``bench new-app`` log → close."""
 
     def __init__(
         self,
@@ -504,12 +587,15 @@ class NewAppDialog(QDialog):
         parent: QWidget | None = None,
         preselect: Path | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("New app")
-        self.setMinimumSize(720, 540)
-
-        self._worker: StreamingOpWorker | None = None
-        self._values: NewAppValues | None = None
+        super().__init__(
+            title="New app",
+            primary_text="Create app",
+            parent=parent,
+            min_size=(720, 540),
+        )
+        self.set_log_placeholder(
+            "Live `bench new-app` output will appear here once you click Create."
+        )
 
         self._bench = QComboBox()
         for path in bench_paths:
@@ -535,64 +621,13 @@ class NewAppDialog(QDialog):
         form.addRow("Title", self._title)
         form.addRow("Publisher", self._publisher)
         form.addRow("Email", self._email)
+        self.set_form_layout(form)
 
-        self._form_holder = QWidget()
-        self._form_holder.setLayout(form)
-
-        self._status = QLabel()
-        self._status.setProperty("role", "dim")
-        self._status.setVisible(False)
-
-        self._log = QPlainTextEdit()
-        self._log.setReadOnly(True)
-        self._log.setMaximumBlockCount(10_000)
-        mono = QFont("JetBrains Mono, Fira Code, Courier New", 9)
-        mono.setStyleHint(QFont.StyleHint.Monospace)
-        self._log.setFont(mono)
-        self._log.setPlaceholderText(
-            "Live `bench new-app` output will appear here once you click Create."
-        )
-        self._log.setVisible(False)
-
-        self._primary = QPushButton("Create app")
-        self._primary.setProperty("role", "primary")
-        self._primary.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._primary.clicked.connect(self._on_primary)
-
-        self._cancel = QPushButton("Cancel")
-        self._cancel.setProperty("role", "ghost")
-        self._cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._cancel.clicked.connect(self.reject)
-
-        buttons_row = QHBoxLayout()
-        buttons_row.addStretch(1)
-        buttons_row.addWidget(self._cancel)
-        buttons_row.addWidget(self._primary)
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 16)
-        root.setSpacing(14)
-        root.addWidget(self._form_holder)
-        root.addWidget(self._status)
-        root.addWidget(self._log, 1)
-        root.addLayout(buttons_row)
-
-    def values(self) -> NewAppValues:
-        if self._values is None:
-            raise RuntimeError("values() called before the operation started")
-        return self._values
-
-    def _on_primary(self) -> None:
-        if self._worker is None:
-            self._start_op()
-        else:
-            self.accept()
-
-    def _start_op(self) -> None:
+    def _collect_values(self) -> NewAppValues | None:
         bench_path = self._bench.currentData()
         if bench_path is None:
             QMessageBox.warning(self, "No bench", "No bench available; create one first.")
-            return
+            return None
         app_name = self._app_name.text().strip()
         if not _APP_NAME_RE.match(app_name):
             QMessageBox.warning(
@@ -601,16 +636,16 @@ class NewAppDialog(QDialog):
                 "App name must start with a lowercase letter and contain only "
                 "lowercase letters, digits, and underscores.",
             )
-            return
+            return None
         if app_name == "frappe":
             QMessageBox.warning(self, "Reserved name", "'frappe' is reserved — pick another name.")
-            return
+            return None
 
         title = self._title.text().strip() or app_name.replace("_", " ").title()
         publisher = self._publisher.text().strip() or "benchbox"
         email = self._email.text().strip() or "dev@example.com"
 
-        self._values = NewAppValues(
+        return NewAppValues(
             bench_path=bench_path,
             app_name=app_name,
             title=title,
@@ -618,48 +653,30 @@ class NewAppDialog(QDialog):
             email=email,
         )
 
-        self._form_holder.setEnabled(False)
-        self._log.setVisible(True)
-        self._status.setVisible(True)
-        self._status.setText(f"Scaffolding {app_name} in {bench_path}…")
-        self._primary.setEnabled(False)
-        self._primary.setText("Working…")
-        self._cancel.setEnabled(False)
-
+    def _build_op(self, values: object) -> Callable[[Callable[[str], None]], Any]:
         from benchbox_core import app as core_app
+
+        v: NewAppValues = values  # type: ignore[assignment]
 
         def op(line_cb: Callable[[str], None]) -> Any:
             return core_app.new_app(
-                self._values.bench_path,  # type: ignore[union-attr]
-                self._values.app_name,  # type: ignore[union-attr]
-                title=self._values.title,  # type: ignore[union-attr]
-                publisher=self._values.publisher,  # type: ignore[union-attr]
-                email=self._values.email,  # type: ignore[union-attr]
+                v.bench_path,
+                v.app_name,
+                title=v.title,
+                publisher=v.publisher,
+                email=v.email,
                 line_callback=line_cb,
             )
 
-        self._worker = StreamingOpWorker(op)
-        self._worker.line_received.connect(self._append_log)
-        self._worker.succeeded.connect(self._on_succeeded)
-        self._worker.failed.connect(self._on_failed)
-        self._worker.start()
+        return op
 
-    def _append_log(self, line: str) -> None:
-        self._log.appendPlainText(line.rstrip("\n"))
+    def _success_text(self) -> str:
+        v: NewAppValues = self._values  # type: ignore[assignment]
+        return f"App {v.app_name} scaffolded."
 
-    def _on_succeeded(self, _result: object) -> None:
-        self._status.setText("✓ App scaffolded successfully.")
-        self._primary.setText("Close")
-        self._primary.setEnabled(True)
-        self._cancel.setVisible(False)
-
-    def _on_failed(self, exc: object) -> None:
-        self._status.setText(f"✗ Failed: {exc}")
-        self._primary.setText("Close")
-        self._primary.setEnabled(True)
-        self._primary.clicked.disconnect()
-        self._primary.clicked.connect(self.reject)
-        self._cancel.setVisible(False)
+    def _running_text(self) -> str:
+        v: NewAppValues = self._values  # type: ignore[assignment]
+        return f"Scaffolding {v.app_name} in {v.bench_path}…"
 
 
 # --- RestoreSiteDialog -------------------------------------------------
@@ -676,26 +693,29 @@ class RestoreSiteValues:
     force: bool
 
 
-class RestoreSiteDialog(QDialog):
-    """Picks an existing site + a SQL backup (optionally public/private file
-    tarballs) to restore onto that site.
-
-    The MariaDB root password isn't prompted for here — the caller loads
-    it from the credentials store (same pattern as NewSiteDialog).
-    """
+class RestoreSiteDialog(LiveLogDialog):
+    """Form → live ``bench restore`` log → close."""
 
     def __init__(
         self,
         bench_sites: dict[Path, list[str]],
         *,
+        db_root_password: str,
         parent: QWidget | None = None,
         preselect_bench: Path | None = None,
         preselect_site: str | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Restore site")
-        self.setMinimumWidth(580)
+        super().__init__(
+            title="Restore site",
+            primary_text="Restore site",
+            parent=parent,
+            min_size=(760, 580),
+        )
+        self.set_log_placeholder(
+            "Live `bench restore` output will appear here once you click Restore site."
+        )
         self._bench_sites = bench_sites
+        self._db_root_password = db_root_password
 
         self._bench = QComboBox()
         for path in bench_sites:
@@ -756,22 +776,7 @@ class RestoreSiteDialog(QDialog):
         form.addRow("Private files", private_row)
         form.addRow("Admin password", self._admin)
         form.addRow("", self._force)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._try_accept)
-        buttons.rejected.connect(self.reject)
-        ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        if ok is not None:
-            ok.setText("Restore site")
-            ok.setProperty("role", "primary")
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 16)
-        root.setSpacing(16)
-        root.addLayout(form)
-        root.addWidget(buttons)
+        self.set_form_layout(form)
 
     def _pick_file(self, target: QLineEdit, label: str) -> None:
         picked, _ = QFileDialog.getOpenFileName(self, f"Select {label}", str(Path.home()))
@@ -786,25 +791,21 @@ class RestoreSiteDialog(QDialog):
         for site in self._bench_sites.get(bench, []):
             self._site.addItem(site)
 
-    def _try_accept(self) -> None:
+    def _collect_values(self) -> RestoreSiteValues | None:
         if self._bench.currentData() is None:
             QMessageBox.warning(self, "No bench", "No bench selected.")
-            return
+            return None
         if not self._site.currentText():
             QMessageBox.warning(self, "No site", "This bench has no sites to restore into.")
-            return
+            return None
         sql = self._sql.text().strip()
         if not sql:
             QMessageBox.warning(self, "Missing backup", "Pick a SQL backup file.")
-            return
+            return None
         if not Path(sql).expanduser().is_file():
-            QMessageBox.warning(
-                self, "Backup not found", f"SQL backup does not exist:\n{sql}"
-            )
-            return
-        self.accept()
+            QMessageBox.warning(self, "Backup not found", f"SQL backup does not exist:\n{sql}")
+            return None
 
-    def values(self) -> RestoreSiteValues:
         def _opt_path(text: str) -> Path | None:
             t = text.strip()
             return Path(t).expanduser() if t else None
@@ -812,12 +813,41 @@ class RestoreSiteDialog(QDialog):
         return RestoreSiteValues(
             bench_path=self._bench.currentData(),
             site_name=self._site.currentText(),
-            sql_path=Path(self._sql.text().strip()).expanduser(),
+            sql_path=Path(sql).expanduser(),
             admin_password=self._admin.text() or None,
             with_public_files=_opt_path(self._public.text()),
             with_private_files=_opt_path(self._private.text()),
             force=self._force.isChecked(),
         )
+
+    def _build_op(self, values: object) -> Callable[[Callable[[str], None]], Any]:
+        from benchbox_core import site as core_site
+
+        v: RestoreSiteValues = values  # type: ignore[assignment]
+        db_root = self._db_root_password
+
+        def op(line_cb: Callable[[str], None]) -> Any:
+            return core_site.restore_site(
+                v.bench_path,
+                v.site_name,
+                v.sql_path,
+                db_root_password=db_root,
+                admin_password=v.admin_password,
+                with_public_files=v.with_public_files,
+                with_private_files=v.with_private_files,
+                force=v.force,
+                line_callback=line_cb,
+            )
+
+        return op
+
+    def _success_text(self) -> str:
+        v: RestoreSiteValues = self._values  # type: ignore[assignment]
+        return f"Site {v.site_name} restored from {v.sql_path.name}."
+
+    def _running_text(self) -> str:
+        v: RestoreSiteValues = self._values  # type: ignore[assignment]
+        return f"Restoring {v.site_name} from {v.sql_path.name}…"
 
 
 # --- InstallAppDialog --------------------------------------------------
@@ -831,8 +861,8 @@ class InstallAppValues:
     force: bool = False
 
 
-class InstallAppDialog(QDialog):
-    """Picks a site on a bench and an app (from that bench's apps) to install."""
+class InstallAppDialog(LiveLogDialog):
+    """Form → live ``bench install-app`` log → close."""
 
     def __init__(
         self,
@@ -843,9 +873,15 @@ class InstallAppDialog(QDialog):
         preselect_bench: Path | None = None,
         preselect_app: str | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Install app")
-        self.setMinimumWidth(520)
+        super().__init__(
+            title="Install app",
+            primary_text="Install app",
+            parent=parent,
+            min_size=(720, 540),
+        )
+        self.set_log_placeholder(
+            "Live `bench install-app` output will appear here once you click Install app."
+        )
         self._bench_sites = bench_sites
         self._bench_apps = bench_apps
 
@@ -874,22 +910,7 @@ class InstallAppDialog(QDialog):
         form.addRow("Site", self._site)
         form.addRow("App", self._app)
         form.addRow("", self._force)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._try_accept)
-        buttons.rejected.connect(self.reject)
-        ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        if ok is not None:
-            ok.setText("Install app")
-            ok.setProperty("role", "primary")
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 16)
-        root.setSpacing(16)
-        root.addLayout(form)
-        root.addWidget(buttons)
+        self.set_form_layout(form)
 
     def _reload_site_and_app_choices(self) -> None:
         bench = self._bench.currentData()
@@ -903,25 +924,46 @@ class InstallAppDialog(QDialog):
             if app != "frappe":  # frappe is always installed on every site
                 self._app.addItem(app)
 
-    def _try_accept(self) -> None:
+    def _collect_values(self) -> InstallAppValues | None:
         if self._bench.currentData() is None:
             QMessageBox.warning(self, "No bench", "No bench selected.")
-            return
+            return None
         if not self._site.currentText():
             QMessageBox.warning(self, "No site", "This bench has no sites yet.")
-            return
+            return None
         if not self._app.currentText():
             QMessageBox.warning(self, "No app", "This bench has no other apps installed.")
-            return
-        self.accept()
-
-    def values(self) -> InstallAppValues:
+            return None
         return InstallAppValues(
             bench_path=self._bench.currentData(),
             site_name=self._site.currentText(),
             apps=(self._app.currentText(),),
             force=self._force.isChecked(),
         )
+
+    def _build_op(self, values: object) -> Callable[[Callable[[str], None]], Any]:
+        from benchbox_core import app as core_app
+
+        v: InstallAppValues = values  # type: ignore[assignment]
+
+        def op(line_cb: Callable[[str], None]) -> Any:
+            return core_app.install_app(
+                v.bench_path,
+                v.site_name,
+                v.apps,
+                force=v.force,
+                line_callback=line_cb,
+            )
+
+        return op
+
+    def _success_text(self) -> str:
+        v: InstallAppValues = self._values  # type: ignore[assignment]
+        return f"Installed {', '.join(v.apps)} on {v.site_name}."
+
+    def _running_text(self) -> str:
+        v: InstallAppValues = self._values  # type: ignore[assignment]
+        return f"Installing {', '.join(v.apps)} on {v.site_name}…"
 
 
 # --- ConfirmDialog -----------------------------------------------------
@@ -1011,6 +1053,7 @@ __all__ = [
     "GetAppValues",
     "InstallAppDialog",
     "InstallAppValues",
+    "LiveLogDialog",
     "NewAppDialog",
     "NewAppValues",
     "NewBenchDialog",

@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
 from benchbox_gui.widgets.card_grid import CardGrid
 from benchbox_gui.widgets.dialogs import (
     NewSiteDialog,
-    NewSiteValues,
     TypedNameConfirmDialog,
 )
 from benchbox_gui.widgets.site_card import SiteCard
@@ -137,32 +136,21 @@ class SitesView(QWidget):
         if not benches:
             QMessageBox.information(self, "No benches", "Create a bench first.")
             return
-        dialog = NewSiteDialog(
-            benches,
-            parent=self,
-            apps_by_bench={p: [a.name for a in i.apps] for p, i in self._bench_cache.items()},
-        )
-        if dialog.exec() != dialog.DialogCode.Accepted:
-            return
         pw = self._ensure_password()
         if pw is None:
             return
-        self._start_new_site(dialog.values(), pw)
-
-    def _start_new_site(self, values: NewSiteValues, db_root: str) -> None:
-        self._open_progress(f"Creating site {values.site_name}…")
-
-        def op() -> core_site.SiteCreateResult:
-            return core_site.create_site(
-                values.bench_path,
-                values.site_name,
-                db_root_password=db_root,
-                admin_password=values.admin_password,
-                install_apps=values.install_apps,
-                set_default=values.set_default,
-            )
-
-        self._spawn(op, success_msg=f"Site {values.site_name!r} created.")
+        # NewSiteDialog is a LiveLogDialog: it owns the worker and log,
+        # so we just refresh on Accepted.
+        dialog = NewSiteDialog(
+            benches,
+            db_root_password=pw,
+            parent=self,
+            apps_by_bench={p: [a.name for a in i.apps] for p, i in self._bench_cache.items()},
+        )
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            # Force re-introspection — the new site won't be in the cache.
+            self._bench_cache.clear()
+            self.refresh()
 
     def _on_drop_site(self, bench_path: Path, site_name: str) -> None:
         """Triggered from a SiteCard's Drop button — typed-name confirm."""
