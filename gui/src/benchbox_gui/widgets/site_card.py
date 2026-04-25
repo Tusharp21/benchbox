@@ -24,12 +24,16 @@ class _Badge(QLabel):
 
 
 class SiteCard(QFrame):
-    """Renders a ``SiteInfo`` + its bench path, with a destructive Drop action.
+    """Renders a ``SiteInfo`` + its bench path, with per-card actions.
 
-    Emits ``drop_requested(bench_path, site_name)``. Cards are static — no
-    site-detail view to open — so only the Drop button fires.
+    Signals:
+    - ``install_app_requested(bench_path, site_name)`` — opens an
+      install-app dialog preselected to this site + bench.
+    - ``drop_requested(bench_path, site_name)`` — opens a typed-name
+      confirm + drop flow.
     """
 
+    install_app_requested = Signal(Path, str)
     drop_requested = Signal(Path, str)
 
     def __init__(
@@ -51,6 +55,14 @@ class SiteCard(QFrame):
         bench_path_label.setProperty("role", "dim")
         bench_path_label.setWordWrap(True)
 
+        install_btn = QPushButton("+ Install app")
+        install_btn.setProperty("role", "primary")
+        install_btn.setMinimumWidth(120)
+        install_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        install_btn.clicked.connect(
+            lambda: self.install_app_requested.emit(self._bench_path, self._site_name)
+        )
+
         drop_btn = QPushButton("Drop")
         drop_btn.setProperty("role", "danger")
         drop_btn.setMinimumWidth(84)
@@ -62,10 +74,15 @@ class SiteCard(QFrame):
         title_col.addWidget(name)
         title_col.addWidget(bench_path_label)
 
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        actions.addWidget(install_btn)
+        actions.addWidget(drop_btn)
+
         title_row = QHBoxLayout()
         title_row.setSpacing(12)
         title_row.addLayout(title_col, 1)
-        title_row.addWidget(drop_btn, 0, Qt.AlignmentFlag.AlignTop)
+        title_row.addLayout(actions)
 
         # Cap visible app chips at 3 — cards get tall fast otherwise.
         badges = QHBoxLayout()

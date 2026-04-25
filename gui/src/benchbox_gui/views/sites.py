@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from benchbox_gui.widgets.card_grid import CardGrid
 from benchbox_gui.widgets.dialogs import (
+    InstallAppDialog,
     NewSiteDialog,
     TypedNameConfirmDialog,
 )
@@ -109,6 +110,7 @@ class SitesView(QWidget):
         cards: list[QWidget] = []
         for row in self._rows:
             card = SiteCard(row.bench_path, row.site)
+            card.install_app_requested.connect(self._on_install_app_on_site)
             card.drop_requested.connect(self._on_drop_site)
             cards.append(card)
         self._grid.set_cards(cards)
@@ -149,6 +151,23 @@ class SitesView(QWidget):
         )
         if dialog.exec() == dialog.DialogCode.Accepted:
             # Force re-introspection — the new site won't be in the cache.
+            self._bench_cache.clear()
+            self.refresh()
+
+    def _on_install_app_on_site(self, bench_path: Path, site_name: str) -> None:
+        """Per-card '+ Install app' on SiteCard — preselect this site + bench."""
+        if not self._bench_cache:
+            self._bench_cache = {p: introspect.introspect(p) for p in discovery.discover_benches()}
+        bench_sites = {p: [s.name for s in i.sites] for p, i in self._bench_cache.items()}
+        bench_apps = {p: [a.name for a in i.apps] for p, i in self._bench_cache.items()}
+        dialog = InstallAppDialog(
+            bench_sites,
+            bench_apps,
+            preselect_bench=bench_path,
+            preselect_site=site_name,
+            parent=self,
+        )
+        if dialog.exec() == dialog.DialogCode.Accepted:
             self._bench_cache.clear()
             self.refresh()
 

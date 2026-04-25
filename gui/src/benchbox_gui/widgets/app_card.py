@@ -28,16 +28,22 @@ class _Badge(QLabel):
 class AppCard(QFrame):
     """Renders an :class:`AppInfo` + its bench path with per-app actions.
 
-    Two distinct destructive actions:
+    Three actions:
+    - **Install on site** — ``install_requested(bench, app)`` — caller opens
+      a site picker (preselected to this app + bench) and spawns
+      ``core.app.install_app``.
     - **Uninstall from site** — ``uninstall_requested(bench, app)`` — caller
       opens a site picker before spawning ``core.app.uninstall_app``.
     - **Remove from bench** — ``remove_requested(bench, app)`` — caller gates
       on a typed-name confirm, then spawns ``core.app.remove_app``.
 
-    ``frappe`` is treated as non-removable: both buttons become disabled
-    placeholders with a tooltip explaining why.
+    ``frappe`` is treated as non-removable: uninstall + remove become
+    disabled with a tooltip explaining why. Install stays enabled because
+    Frappe is always implicitly installed when the site is created — the
+    dialog will skip it if it's already there.
     """
 
+    install_requested = Signal(Path, str)
     uninstall_requested = Signal(Path, str)
     remove_requested = Signal(Path, str)
 
@@ -59,6 +65,13 @@ class AppCard(QFrame):
         bench_path_label = QLabel(str(bench_path))
         bench_path_label.setProperty("role", "dim")
         bench_path_label.setWordWrap(True)
+
+        install_btn = QPushButton("Install on site…")
+        install_btn.setProperty("role", "primary")
+        install_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        install_btn.clicked.connect(
+            lambda: self.install_requested.emit(self._bench_path, self._app_name)
+        )
 
         uninstall_btn = QPushButton("Uninstall from site…")
         uninstall_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -83,6 +96,7 @@ class AppCard(QFrame):
 
         actions = QHBoxLayout()
         actions.setSpacing(6)
+        actions.addWidget(install_btn)
         actions.addWidget(uninstall_btn)
         actions.addWidget(remove_btn)
 

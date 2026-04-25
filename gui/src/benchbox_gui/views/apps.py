@@ -112,6 +112,7 @@ class AppsView(QWidget):
         cards: list[QWidget] = []
         for row in self._rows:
             card = AppCard(row.bench_path, row.app)
+            card.install_requested.connect(self._on_install_from_card)
             card.uninstall_requested.connect(self._on_uninstall_requested)
             card.remove_requested.connect(self._on_remove_requested)
             cards.append(card)
@@ -145,6 +146,19 @@ class AppsView(QWidget):
             self.refresh()
 
     def _on_install_app(self) -> None:
+        self._open_install_dialog()
+
+    def _on_install_from_card(self, bench_path: Path, app_name: str) -> None:
+        """Per-card 'Install on site…' on AppCard — preselect this app + bench."""
+        self._open_install_dialog(preselect_bench=bench_path, preselect_app=app_name)
+
+    def _open_install_dialog(
+        self,
+        *,
+        preselect_bench: Path | None = None,
+        preselect_site: str | None = None,
+        preselect_app: str | None = None,
+    ) -> None:
         if not self._bench_cache:
             QMessageBox.information(self, "No benches", "Create a bench first.")
             return
@@ -152,6 +166,9 @@ class AppsView(QWidget):
             self._sites_by_bench(),
             self._apps_by_bench(),
             parent=self,
+            preselect_bench=preselect_bench,
+            preselect_site=preselect_site,
+            preselect_app=preselect_app,
         )
         if dialog.exec() == dialog.DialogCode.Accepted:
             self._bench_cache.clear()

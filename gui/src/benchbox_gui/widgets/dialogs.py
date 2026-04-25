@@ -871,6 +871,7 @@ class InstallAppDialog(LiveLogDialog):
         *,
         parent: QWidget | None = None,
         preselect_bench: Path | None = None,
+        preselect_site: str | None = None,
         preselect_app: str | None = None,
     ) -> None:
         super().__init__(
@@ -897,6 +898,10 @@ class InstallAppDialog(LiveLogDialog):
         self._site = QComboBox()
         self._app = QComboBox()
         self._reload_site_and_app_choices()
+        if preselect_site is not None:
+            idx = self._site.findText(preselect_site)
+            if idx >= 0:
+                self._site.setCurrentIndex(idx)
         if preselect_app is not None:
             idx = self._app.findText(preselect_app)
             if idx >= 0:
