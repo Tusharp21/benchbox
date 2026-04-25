@@ -29,6 +29,7 @@ def _recording_runner(captured: list[tuple[tuple[str, ...], object]]) -> object:
         cwd: object = None,
         check: bool = False,
         timeout: float | None = None,
+        line_callback: object | None = None,
     ) -> CommandResult:
         captured.append((tuple(command), cwd))
         return CommandResult(tuple(command), 0, "", "", True)

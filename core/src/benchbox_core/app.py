@@ -180,6 +180,7 @@ def install_app(
     *,
     force: bool = False,
     runner: CommandRunner | None = None,
+    line_callback: Callable[[str], None] | None = None,
 ) -> InstallAppResult:
     """Install one or more apps onto ``site_name`` via ``bench install-app``.
 
@@ -195,7 +196,7 @@ def install_app(
         argv.append("--force")
 
     active = runner if runner is not None else CommandRunner()
-    result = active.run(argv, cwd=bench_path)
+    result = active.run(argv, cwd=bench_path, line_callback=line_callback)
 
     if result.executed and result.returncode != 0:
         raise AppOperationError("install-app", result)

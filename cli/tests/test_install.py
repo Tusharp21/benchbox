@@ -69,6 +69,7 @@ def test_install_dry_run_prints_plans_without_executing(
         cwd: object = None,
         check: bool = False,
         timeout: float | None = None,
+        line_callback: object | None = None,
     ) -> CommandResult:
         # Every probe returns "not installed / service inactive"
         return CommandResult(tuple(command), 1, "", "", True)

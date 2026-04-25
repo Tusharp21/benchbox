@@ -15,7 +15,7 @@ default.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -79,12 +79,16 @@ def create_site(
     force: bool = False,
     set_default: bool = False,
     runner: CommandRunner | None = None,
+    line_callback: Callable[[str], None] | None = None,
 ) -> SiteCreateResult:
     """Run ``bench new-site`` inside ``bench_path`` and return a SiteInfo.
 
     ``force`` maps to bench's ``--force`` (overwrite an existing site). When
     False, we guard up front with ``SiteAlreadyExistsError`` so callers get
     a clear error before the subprocess is even spawned.
+
+    ``line_callback`` opt-in streams subprocess output line-by-line to the
+    caller (used by the GUI's live-log dialog).
     """
     if not force and _site_dir(bench_path, site_name).is_dir():
         raise SiteAlreadyExistsError(f"site {site_name!r} already exists under {bench_path}")
@@ -106,7 +110,7 @@ def create_site(
         argv.append("--set-default")
 
     active = runner if runner is not None else CommandRunner()
-    result = active.run(argv, cwd=bench_path)
+    result = active.run(argv, cwd=bench_path, line_callback=line_callback)
 
     if not result.executed:
         return SiteCreateResult(command=result, info=None)
@@ -171,6 +175,7 @@ def restore_site(
     with_private_files: Path | None = None,
     force: bool = False,
     runner: CommandRunner | None = None,
+    line_callback: Callable[[str], None] | None = None,
 ) -> SiteRestoreResult:
     """Run ``bench --site <name> restore <sql>`` inside ``bench_path``.
 
@@ -206,7 +211,7 @@ def restore_site(
     if force:
         argv.append("--force")
 
-    result = active.run(argv, cwd=bench_path)
+    result = active.run(argv, cwd=bench_path, line_callback=line_callback)
 
     if result.executed and result.returncode != 0:
         raise SiteOperationError("restore", result)

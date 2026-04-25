@@ -64,6 +64,7 @@ def test_site_new_with_saved_credentials(
         cwd: object = None,
         check: bool = False,
         timeout: float | None = None,
+        line_callback: object | None = None,
     ) -> CommandResult:
         captured.append((tuple(command), cwd))
         _make_site(bench, "s1.local")  # simulate bench's side effect

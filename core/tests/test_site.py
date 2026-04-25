@@ -33,6 +33,7 @@ class CapturingRunner(CommandRunner):
         cwd: str | Path | None = None,
         check: bool = False,
         timeout: float | None = None,
+        line_callback: object | None = None,
     ) -> CommandResult:
         argv = tuple(command)
         self.calls.append((argv, str(cwd) if cwd is not None else None))

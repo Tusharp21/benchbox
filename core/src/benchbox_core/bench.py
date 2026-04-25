@@ -13,6 +13,7 @@ becoming a grab-bag.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,6 +54,7 @@ def create_bench(
     frappe_branch: str = DEFAULT_FRAPPE_BRANCH,
     python_bin: str = DEFAULT_PYTHON_BIN,
     runner: CommandRunner | None = None,
+    line_callback: Callable[[str], None] | None = None,
 ) -> BenchCreateResult:
     """Run ``bench init`` at ``path`` and return an introspected BenchInfo.
 
@@ -84,6 +86,7 @@ def create_bench(
             "--python",
             python_bin,
         ],
+        line_callback=line_callback,
     )
 
     if not result.executed:
