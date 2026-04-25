@@ -57,15 +57,20 @@ def init_session(level: int = logging.INFO, log_root: Path | None = None) -> Pat
             datefmt="%Y-%m-%dT%H:%M:%S%z",
         )
     )
+    # File handler always captures everything (probe noise, subprocess
+    # stdout/stderr) so a bug report can attach session.log; the console
+    # handler is curated separately so the terminal stays readable.
+    file_handler.setLevel(logging.DEBUG)
     console_handler = RichHandler(
         rich_tracebacks=True,
         show_time=False,
         show_path=False,
         markup=False,
     )
+    console_handler.setLevel(level)
 
     root_logger = logging.getLogger()
-    root_logger.setLevel(level)
+    root_logger.setLevel(logging.DEBUG)
     for handler in list(root_logger.handlers):
         root_logger.removeHandler(handler)
     root_logger.addHandler(file_handler)

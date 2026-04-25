@@ -80,7 +80,7 @@ class MariaDBComponent:
 
     name: str = field(default="mariadb", init=False)
     root_password: str = ""
-    probe_runner: CommandRunner = field(default_factory=CommandRunner)
+    probe_runner: CommandRunner = field(default_factory=lambda: CommandRunner(quiet=True))
     use_sudo: bool = True
     config_override_path: Path = CONFIG_OVERRIDE_PATH
 

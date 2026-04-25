@@ -54,7 +54,7 @@ class BenchCliComponent:
     """Install pipx (if missing) and then ``frappe-bench`` through it."""
 
     name: str = field(default="bench-cli", init=False)
-    probe_runner: CommandRunner = field(default_factory=CommandRunner)
+    probe_runner: CommandRunner = field(default_factory=lambda: CommandRunner(quiet=True))
     use_sudo: bool = True
 
     def _sudo(self, argv: list[str]) -> tuple[str, ...]:

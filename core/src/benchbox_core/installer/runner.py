@@ -38,10 +38,13 @@ def install(
 
     results: list[ComponentResult] = []
     for component in components:
-        _log.info("[%s] planning", component.name)
+        # Plan/step/done bookkeeping lands in the file log (DEBUG) but not
+        # on the console — the per-component result table that the CLI/GUI
+        # prints after each component runs already conveys the same info.
+        _log.debug("[%s] planning", component.name)
         plan = component.plan()
         runnable = len(plan.runnable_steps)
-        _log.info("[%s] %d step(s) to run", component.name, runnable)
+        _log.debug("[%s] %d step(s) to run", component.name, runnable)
 
         apply = getattr(component, "apply", None)
         if apply is None:
@@ -52,6 +55,6 @@ def install(
         if not result.ok:
             _log.error("[%s] failed; aborting remaining components", component.name)
             break
-        _log.info("[%s] done", component.name)
+        _log.debug("[%s] done", component.name)
 
     return InstallResult(components=tuple(results))

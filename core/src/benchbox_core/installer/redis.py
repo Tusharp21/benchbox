@@ -41,7 +41,7 @@ class RedisComponent:
     """Install and enable system redis-server."""
 
     name: str = field(default="redis", init=False)
-    probe_runner: CommandRunner = field(default_factory=CommandRunner)
+    probe_runner: CommandRunner = field(default_factory=lambda: CommandRunner(quiet=True))
     use_sudo: bool = True
 
     def _sudo(self, argv: list[str]) -> tuple[str, ...]:
