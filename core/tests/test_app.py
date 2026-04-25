@@ -8,6 +8,7 @@ from benchbox_core.app import (
     AppOperationError,
     get_app,
     install_app,
+    new_app,
     remove_app,
     uninstall_app,
 )
@@ -31,6 +32,7 @@ class CapturingRunner(CommandRunner):
         cwd: str | Path | None = None,
         check: bool = False,
         timeout: float | None = None,
+        line_callback: object | None = None,  # accept and ignore for streaming-aware callers
     ) -> CommandResult:
         argv = tuple(command)
         self.calls.append((argv, str(cwd) if cwd is not None else None))
@@ -131,6 +133,94 @@ def test_get_app_raises_on_nonzero_exit(tmp_path: Path) -> None:
 
     assert excinfo.value.operation == "get-app"
     assert excinfo.value.result.returncode == 1
+
+
+# --- new_app ------------------------------------------------------
+
+
+class _StdinCapturingRunner(CapturingRunner):
+    """CapturingRunner that also remembers the stdin payload."""
+
+    def __init__(self, *, returncode: int = 0, post_run: object | None = None) -> None:
+        super().__init__(returncode=returncode, post_run=post_run)
+        self.last_input: str | None = None
+
+    def run(  # type: ignore[override]
+        self,
+        command: list[str] | tuple[str, ...],
+        *,
+        input: str | None = None,
+        cwd: str | Path | None = None,
+        check: bool = False,
+        timeout: float | None = None,
+        line_callback: object | None = None,
+    ) -> CommandResult:
+        self.last_input = input
+        return super().run(command, input=input, cwd=cwd, check=check, timeout=timeout)
+
+
+def test_new_app_argv_and_stdin(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    runner = _StdinCapturingRunner(
+        returncode=0,
+        post_run=lambda: _add_app_dir(bench, "my_custom_app", "0.0.1"),
+    )
+
+    new_app(
+        bench,
+        "my_custom_app",
+        title="My Custom App",
+        publisher="acme",
+        email="dev@acme.test",
+        runner=runner,
+    )
+
+    argv, cwd = runner.calls[0]
+    assert argv == ("bench", "new-app", "my_custom_app")
+    assert cwd == str(bench)
+    # Five canned answers feeding bench's interactive prompts:
+    # title, description, publisher, email, license
+    assert runner.last_input is not None
+    lines = runner.last_input.splitlines()
+    assert lines[0] == "My Custom App"
+    assert lines[2] == "acme"
+    assert lines[3] == "dev@acme.test"
+    assert lines[4] == "MIT"
+
+
+def test_new_app_default_title_humanizes_app_name(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    runner = _StdinCapturingRunner(
+        returncode=0,
+        post_run=lambda: _add_app_dir(bench, "my_custom_app", "0.0.1"),
+    )
+
+    new_app(bench, "my_custom_app", runner=runner)
+
+    assert runner.last_input is not None
+    assert runner.last_input.splitlines()[0] == "My Custom App"
+
+
+def test_new_app_rejects_invalid_name(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    runner = _StdinCapturingRunner(returncode=0)
+
+    for bad_name in ("My-App", "1abc", "MyApp", "with space", ""):
+        with pytest.raises(ValueError):
+            new_app(bench, bad_name, runner=runner)
+
+
+def test_new_app_raises_on_nonzero_exit(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    _make_bench_skeleton(bench)
+    runner = _StdinCapturingRunner(returncode=1)
+
+    with pytest.raises(AppOperationError) as excinfo:
+        new_app(bench, "my_app", runner=runner)
+    assert excinfo.value.operation == "new-app"
 
 
 def test_get_app_dry_run_returns_empty_apps(tmp_path: Path) -> None:

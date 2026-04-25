@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -102,7 +103,17 @@ class CommandRunner:
         cwd: str | Path | None = None,
         check: bool = False,
         timeout: float | None = None,
+        line_callback: Callable[[str], None] | None = None,
     ) -> CommandResult:
+        """Spawn ``command`` and return a :class:`CommandResult`.
+
+        With ``line_callback`` provided, switch from the default buffered
+        ``subprocess.run`` to a streaming ``Popen`` and call
+        ``line_callback(line)`` for each line of merged stdout/stderr as it
+        arrives. The buffered behaviour is preserved when no callback is
+        passed so existing callers (probes, install components) stay
+        unchanged.
+        """
         argv = tuple(command)
         pretty = shlex.join(argv)
         emit = _log.debug if self.quiet else _log.info
@@ -117,6 +128,18 @@ class CommandRunner:
 
         cwd_suffix = f" [cwd={cwd}]" if cwd is not None else ""
         emit("$ %s%s", pretty, cwd_suffix)
+
+        if line_callback is not None:
+            return self._run_streaming(
+                argv,
+                input=input,
+                cwd=cwd,
+                timeout=timeout,
+                line_callback=line_callback,
+                check=check,
+                emit=emit,
+            )
+
         try:
             proc = subprocess.run(  # noqa: S603  # argv list, never shell=True
                 argv,
@@ -176,4 +199,91 @@ class CommandRunner:
         self._history.append(result)
         if check and proc.returncode != 0:
             raise subprocess.CalledProcessError(proc.returncode, argv, proc.stdout, proc.stderr)
+        return result
+
+    def _run_streaming(
+        self,
+        argv: tuple[str, ...],
+        *,
+        input: str | None,
+        cwd: str | Path | None,
+        timeout: float | None,
+        line_callback: Callable[[str], None],
+        check: bool,
+        emit,  # type: ignore[no-untyped-def]
+    ) -> CommandResult:
+        """Live-stream stdout/stderr through ``line_callback``.
+
+        stderr is merged into stdout so the callback receives a single
+        chronologically-ordered stream — matters for things like
+        ``bench get-app`` where pip and git both write to stderr but the
+        user wants to read the events in the order they happened.
+        """
+        try:
+            proc = subprocess.Popen(  # noqa: S603  # argv list, never shell=True
+                argv,
+                stdin=subprocess.PIPE if input is not None else None,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=cwd,
+                env=_build_subprocess_env(),
+                text=True,
+                bufsize=1,
+            )
+        except FileNotFoundError as err:
+            result = CommandResult(argv, 127, "", str(err), executed=True)
+            self._history.append(result)
+            if check:
+                raise
+            return result
+
+        if input is not None and proc.stdin is not None:
+            try:
+                proc.stdin.write(input)
+                proc.stdin.close()
+            except BrokenPipeError:
+                pass
+
+        accumulated: list[str] = []
+        assert proc.stdout is not None
+        try:
+            for line in proc.stdout:
+                accumulated.append(line)
+                try:
+                    line_callback(line)
+                except Exception:  # noqa: BLE001 — callback errors mustn't kill the process
+                    _log.exception("line_callback raised; continuing to drain process output")
+        finally:
+            proc.stdout.close()
+
+        try:
+            returncode = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            stdout_text = "".join(accumulated)
+            result = CommandResult(argv, 124, stdout_text, f"timeout after {timeout}s", True)
+            self._history.append(result)
+            if check:
+                raise
+            return result
+
+        stdout_text = "".join(accumulated)
+        if returncode == 0:
+            emit("  -> exit 0")
+        else:
+            emit("  -> exit %d", returncode)
+            if not self.quiet and stdout_text.strip():
+                _log.info("output: %s", stdout_text.rstrip())
+
+        result = CommandResult(
+            command=argv,
+            returncode=returncode,
+            stdout=stdout_text,
+            stderr="",
+            executed=True,
+        )
+        self._history.append(result)
+        if check and returncode != 0:
+            raise subprocess.CalledProcessError(returncode, argv, stdout_text, "")
         return result

@@ -45,6 +45,7 @@ def test_app_get_forwards_url_and_cwd(
         cwd: object = None,
         check: bool = False,
         timeout: float | None = None,
+        line_callback: object | None = None,
     ) -> CommandResult:
         captured.append((tuple(command), cwd))
         _add_app(bench_path, "erpnext")
