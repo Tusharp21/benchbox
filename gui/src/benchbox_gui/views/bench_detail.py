@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from benchbox_core import app as core_app
 from benchbox_core import credentials, introspect
 from benchbox_core import site as core_site
 from PySide6.QtCore import Qt, Signal
@@ -32,7 +31,7 @@ from benchbox_gui.widgets.bench_actions import (
 )
 from benchbox_gui.widgets.dialogs import (
     GetAppDialog,
-    GetAppValues,
+    NewAppDialog,
     NewSiteDialog,
     NewSiteValues,
     RestoreSiteDialog,
@@ -74,6 +73,7 @@ class BenchDetailView(QWidget):
         self._actions.open_folder_requested.connect(self._on_open_folder)
         self._actions.new_site_requested.connect(self._on_new_site)
         self._actions.get_app_requested.connect(self._on_get_app)
+        self._actions.new_app_requested.connect(self._on_new_app)
         self._actions.restore_site_requested.connect(self._on_restore_site)
 
         # Process panel is now a subscriber to the shared manager; it
@@ -246,23 +246,19 @@ class BenchDetailView(QWidget):
     def _on_get_app(self) -> None:
         if self._current_path is None:
             return
+        # The dialog hosts its own log + worker + status row; we only
+        # need to refresh the bench detail once it returns Accepted
+        # (operation finished cleanly). Rejected = cancel or failure.
         dialog = GetAppDialog([self._current_path], preselect=self._current_path, parent=self)
-        if dialog.exec() != dialog.DialogCode.Accepted:
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self.load(self._current_path)
+
+    def _on_new_app(self) -> None:
+        if self._current_path is None:
             return
-        values = dialog.values()
-        self._start_get_app(values)
-
-    def _start_get_app(self, values: GetAppValues) -> None:
-        self._open_progress("Fetching app (this can take a few minutes)…")
-
-        def op() -> core_app.GetAppResult:
-            return core_app.get_app(values.bench_path, values.git_url, branch=values.branch)
-
-        self._spawn_worker(
-            op,
-            on_success=lambda _r: self._on_mutation_success("App fetched."),
-            on_failure=lambda e: self._on_mutation_failed("Fetching app failed", e),
-        )
+        dialog = NewAppDialog([self._current_path], preselect=self._current_path, parent=self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self.load(self._current_path)
 
     def _on_restore_site(self) -> None:
         if self._current_path is None:

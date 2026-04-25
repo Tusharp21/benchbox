@@ -37,6 +37,7 @@ class BenchActionRow(QWidget):
     open_folder_requested = Signal()
     new_site_requested = Signal()
     get_app_requested = Signal()
+    new_app_requested = Signal()
     restore_site_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -65,6 +66,10 @@ class BenchActionRow(QWidget):
         get_app.setCursor(Qt.CursorShape.PointingHandCursor)
         get_app.clicked.connect(self.get_app_requested.emit)
 
+        new_app = QPushButton("+ New app")
+        new_app.setCursor(Qt.CursorShape.PointingHandCursor)
+        new_app.clicked.connect(self.new_app_requested.emit)
+
         restore = QPushButton("⟲ Restore site")
         restore.setCursor(Qt.CursorShape.PointingHandCursor)
         restore.clicked.connect(self.restore_site_requested.emit)
@@ -78,6 +83,7 @@ class BenchActionRow(QWidget):
         layout.addWidget(open_folder)
         layout.addWidget(new_site)
         layout.addWidget(get_app)
+        layout.addWidget(new_app)
         layout.addWidget(restore)
         layout.addStretch(1)
 

@@ -48,6 +48,36 @@ class OperationWorker(QThread):
         self.succeeded.emit(result)
 
 
+class StreamingOpWorker(QThread):
+    """Run a streaming core operation off the UI thread.
+
+    The operation is a callable that accepts a single ``line_callback``
+    argument and returns a result. Inside the worker we run the callable
+    with ``self.line_received.emit`` as that callback, so the operation's
+    underlying ``CommandRunner`` pipes stdout lines back to the UI thread
+    via Qt's queued-connection signal delivery.
+
+    Used for the get-app / new-app dialogs where the user wants to watch
+    git-clone + pip-install output stream live.
+    """
+
+    line_received = Signal(str)
+    succeeded = Signal(object)
+    failed = Signal(object)
+
+    def __init__(self, operation: Callable[[Callable[[str], None]], Any]) -> None:
+        super().__init__()
+        self._operation = operation
+
+    def run(self) -> None:
+        try:
+            result = self._operation(self.line_received.emit)
+        except Exception as exc:  # noqa: BLE001 — surface anything the op raises
+            self.failed.emit(exc)
+            return
+        self.succeeded.emit(result)
+
+
 class InstallWorker(QThread):
     """Run :func:`benchbox_core.installer.install` off the UI thread.
 
