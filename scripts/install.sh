@@ -194,9 +194,14 @@ fi
 echo
 color_grn "✓ benchbox installed"
 echo
-echo "  CLI:         benchbox --help"
-echo "  GUI:         benchbox-gui      (also available from your app launcher)"
-echo "  uninstall:   benchbox-uninstall"
+echo "  Next step (one shot — provisions Frappe + creates your first bench & site):"
+echo
+echo "      benchbox quickstart"
+echo
+echo "  Or pick what to run yourself:"
+echo "    CLI:         benchbox --help"
+echo "    GUI:         benchbox-gui      (also available from your app launcher)"
+echo "    uninstall:   benchbox-uninstall"
 echo
 if ! printf ':%s:' "${PATH}" | grep -q ":${BIN_DIR}:"; then
     color_red "heads up: ${BIN_DIR} is not on your PATH."

@@ -56,14 +56,21 @@ def create_bench(
 ) -> BenchCreateResult:
     """Run ``bench init`` at ``path`` and return an introspected BenchInfo.
 
-    Raises ``BenchAlreadyExistsError`` if ``path`` already looks like a bench
-    directory, and ``BenchCreationError`` if the CLI call itself fails. On
+    Raises ``BenchAlreadyExistsError`` if ``path`` already exists in any
+    form — bench's CLI refuses to populate an existing directory but exits
+    *0* with an "ERROR: Bench instance already exists" line on stdout, so
+    we have to gate this ourselves rather than trust the exit code. On
     a dry-run runner we skip the pre/post-condition work and return
     ``info=None`` — the caller can still read the command shape off
     ``result.command``.
     """
-    if is_bench(path):
-        raise BenchAlreadyExistsError(f"{path} already contains a Frappe bench")
+    if path.exists():
+        if is_bench(path):
+            raise BenchAlreadyExistsError(f"{path} already contains a Frappe bench")
+        raise BenchAlreadyExistsError(
+            f"{path} already exists; bench init refuses to populate an "
+            f"existing directory. Pick a path that doesn't exist yet."
+        )
 
     active = runner if runner is not None else CommandRunner()
 
@@ -84,6 +91,12 @@ def create_bench(
         return BenchCreateResult(command=result, info=None)
 
     if result.returncode != 0:
+        raise BenchCreationError(result)
+
+    # bench's CLI sometimes reports success while having done nothing
+    # (e.g. a stdout "ERROR: ..." that the wrapper turns into exit 0).
+    # Verify the bench was actually created before claiming success.
+    if not is_bench(path):
         raise BenchCreationError(result)
 
     return BenchCreateResult(command=result, info=introspect(path))
