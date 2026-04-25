@@ -41,6 +41,8 @@ class SiteCard(QFrame):
         bench_path: Path,
         site: SiteInfo,
         parent: QWidget | None = None,
+        *,
+        read_only: bool = False,
     ) -> None:
         super().__init__(parent)
         self._bench_path = bench_path
@@ -78,6 +80,10 @@ class SiteCard(QFrame):
         actions.setSpacing(8)
         actions.addWidget(install_btn)
         actions.addWidget(drop_btn)
+
+        if read_only:
+            install_btn.setVisible(False)
+            drop_btn.setVisible(False)
 
         title_row = QHBoxLayout()
         title_row.setSpacing(12)

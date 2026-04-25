@@ -52,6 +52,8 @@ class AppCard(QFrame):
         bench_path: Path,
         app: AppInfo,
         parent: QWidget | None = None,
+        *,
+        read_only: bool = False,
     ) -> None:
         super().__init__(parent)
         self._bench_path = bench_path
@@ -99,6 +101,11 @@ class AppCard(QFrame):
         actions.addWidget(install_btn)
         actions.addWidget(uninstall_btn)
         actions.addWidget(remove_btn)
+
+        if read_only:
+            install_btn.setVisible(False)
+            uninstall_btn.setVisible(False)
+            remove_btn.setVisible(False)
 
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
