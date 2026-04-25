@@ -234,12 +234,12 @@ def test_apply_dry_run_records_all_runnable_steps() -> None:
 def test_apply_short_circuits_on_download_failure() -> None:
     component = _component_with_probe(_missing_runner())
     plan = component.plan()
-    # Fail on first real command (download).
-    runner = ScriptedRunner(returncodes=[1])
+    # mkdir cache succeeds (rc=0), then curl download fails (rc=1).
+    runner = ScriptedRunner(returncodes=[0, 1])
 
     result = component.apply(plan, runner)
 
     assert result.ok is False
     executed = [r for r in result.results if r.executed]
-    assert len(executed) == 1
-    assert executed[0].error == "boom"
+    assert len(executed) == 2
+    assert executed[-1].error == "boom"

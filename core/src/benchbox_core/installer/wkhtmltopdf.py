@@ -100,8 +100,14 @@ class WkhtmltopdfComponent:
     name: str = field(default="wkhtmltopdf", init=False)
     ubuntu_version: str = ""  # e.g. "22.04"; empty means detect at plan time
     machine_arch: str = ""  # e.g. "x86_64"; empty means detect at plan time
-    download_dir: Path = Path("/tmp")
-    probe_runner: CommandRunner = field(default_factory=CommandRunner)
+    # Defaults to a private user-cache dir (0700). We avoid /tmp because the
+    # filename is predictable and a sibling local user could race-swap the
+    # .deb between curl and `sudo apt install`, which would land malicious
+    # code as root.
+    download_dir: Path = field(
+        default_factory=lambda: Path.home() / ".cache" / "benchbox" / "wkhtmltopdf"
+    )
+    probe_runner: CommandRunner = field(default_factory=lambda: CommandRunner(quiet=True))
     use_sudo: bool = True
 
     def _sudo(self, argv: list[str]) -> tuple[str, ...]:
@@ -156,6 +162,12 @@ class WkhtmltopdfComponent:
                 )
             )
 
+        steps.append(
+            Step(
+                description=f"prepare private cache dir {self.download_dir}",
+                command=("install", "-d", "-m", "0700", str(self.download_dir)),
+            )
+        )
         steps.append(
             Step(
                 description=f"download patched-qt wkhtmltopdf {WKHTMLTOPDF_VERSION}",

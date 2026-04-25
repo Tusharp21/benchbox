@@ -28,6 +28,7 @@ BASE_PACKAGES: tuple[str, ...] = (
     "wget",
     "ca-certificates",
     "build-essential",
+    "pkg-config",
     "python3-dev",
     "python3-venv",
     "python3-pip",
@@ -39,6 +40,7 @@ BASE_PACKAGES: tuple[str, ...] = (
     "zlib1g-dev",
     "software-properties-common",
     "fontconfig",
+    "xvfb",
     "libxrender1",
     "libxext6",
     "xfonts-75dpi",
@@ -74,7 +76,7 @@ class AptComponent:
 
     name: str = field(default="apt", init=False)
     packages: tuple[str, ...] = BASE_PACKAGES
-    probe_runner: CommandRunner = field(default_factory=CommandRunner)
+    probe_runner: CommandRunner = field(default_factory=lambda: CommandRunner(quiet=True))
     use_sudo: bool = True
 
     def _sudo(self, argv: list[str]) -> tuple[str, ...]:
