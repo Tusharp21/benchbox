@@ -2,71 +2,104 @@
 
 > Frappe bench installer and manager for Ubuntu developers.
 
-**Status:** v0.1.0 — first public release. **Primary OS:** Ubuntu 22.04 / 24.04. macOS support planned for a later release.
+**Status:** v0.1.0 — first public release. **Primary OS:** Ubuntu 22.04 / 24.04. macOS support planned.
 
-benchbox gives you two ways to install and manage Frappe locally:
-
-- **CLI** — `benchbox install` walks you through a first-run setup, then `benchbox bench`, `benchbox site`, and `benchbox app` commands manage everything after.
-- **GUI** — a desktop app with a live dashboard: top banner shows system stats, sidebar for quick navigation, main area lists every bench on your machine. Click a bench to see its apps, sites, versions, and services.
-
-Under the hood, both frontends call the same Python core library, so they never drift apart.
-
-## Why
-
-Standard Frappe install is painful: MariaDB charset gotchas, the wkhtmltopdf patched-qt requirement, Node/Python version juggling, Redis services, and `bench init` quirks. benchbox collapses all of that into one command (or one click) and then sticks around as a dashboard for the benches it set up.
-
-## Screenshots
-
-> Drop screenshots at `docs/screenshots/` once you've taken them. Suggested set:
-
-| | |
-| :---: | :---: |
-| ![Benches view](docs/screenshots/benches.png) | ![Bench detail](docs/screenshots/bench-detail.png) |
-| Benches list with live system stats + pill-shaped service indicators | Bench detail with live log tail, Start/Stop, Open folder, New site, Get app |
-| ![Install](docs/screenshots/install.png) | ![Sites](docs/screenshots/sites.png) |
-| Installer runs every component in a background thread | Cross-bench sites view |
+A desktop app + CLI that handles the painful parts of running Frappe locally:
+MariaDB charset, wkhtmltopdf patched-qt, Node 18 via nvm, Redis, and `bench
+init` quirks. One install, one dashboard, every common bench/site/app
+operation a click away.
 
 ## Install
-
-Ubuntu 22.04 / 24.04, one command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Tusharp21/benchbox/main/scripts/install.sh | bash
 ```
 
-That drops a per-user venv at `~/.local/share/benchbox`, creates
-`benchbox` and `benchbox-gui` on your `PATH`, and registers a
-`.desktop` entry so **benchbox shows up in your app launcher** with an
-icon. You can launch the GUI by clicking it or by running
-`benchbox-gui` in a terminal.
+Drops a per-user venv at `~/.local/share/benchbox`, creates `benchbox` and
+`benchbox-gui` shims in `~/.local/bin`, and registers a `.desktop` entry.
 
-If `~/.local/bin` isn't on your `PATH` yet, add this to `~/.bashrc`:
+If `~/.local/bin` isn't on your `PATH`:
 
 ```bash
-export PATH="${HOME}/.local/bin:${PATH}"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### Uninstall
+## First run
+
+End-to-end, fresh box:
 
 ```bash
-benchbox-uninstall
+benchbox quickstart
 ```
 
-Leaves `~/.benchbox/` (logs + saved credentials) untouched —
-`rm -rf ~/.benchbox` if you want that gone too.
+Or click the launcher icon (or `benchbox-gui`), open **Install** in the
+sidebar, then **Benches** → **New bench**.
 
-### Upgrade
+## What you get
 
-Whenever a new release lands, bump in place:
+- **Tabbed bench detail page** — `[Apps] [site1] [site2] ... [Free terminal]`.
+  Switching to a site tab automatically scopes the dock's actions and the
+  embedded runner to that site.
+- **Per-app cards** — Install on site / Uninstall / Switch branch / Remove.
+- **Per-site action grid** — Migrate / Clear cache / Backup / Pause-resume
+  scheduler / Toggle maintenance mode. State pills show what's currently on
+  or paused.
+- **Sticky bottom dock** — `bench start` Start/Stop, status dot, live URL,
+  collapsible log. Per-site Open in browser + Drop site (typed confirm)
+  appear when a site tab is active.
+- **Multi-bench in parallel** — every running `bench start` is tracked in
+  one app-level process manager. Switching views never kills a bench.
+- **Full subprocess cleanup on quit** — closing the window terminates every
+  in-flight `bench start` and any runner commands (SIGTERM then SIGKILL).
+- **Live system stats** — CPU / RAM / disk / Node / MariaDB / Redis pills
+  at the top of every page.
+
+## Screenshots
+
+> Drop screenshots at `docs/screenshots/`.
+
+| | |
+| :---: | :---: |
+| ![Bench list](docs/screenshots/benches.png) | ![Bench detail](docs/screenshots/bench-detail.png) |
+| Bench list with live system stats | Tabbed bench detail with sticky dock |
+| ![Site tab](docs/screenshots/site-tab.png) | ![Install](docs/screenshots/install.png) |
+| Per-site working area: info table, maintenance grid, runner | Installer: preflight pills + component cards + live log |
+
+## How to use it
+
+[**docs/user-guide.md**](docs/user-guide.md) — install → first bench → GUI
+tour → CLI reference → common workflows → troubleshooting.
+
+## CLI
+
+```
+benchbox install        # prereqs (MariaDB, Redis, Node, wkhtmltopdf, bench CLI)
+benchbox quickstart     # full provision + bench + site in one shot
+benchbox bench list     # every bench under $HOME
+benchbox bench info <path>
+benchbox site new <bench-path> <site-name>
+benchbox app get <bench-path> <git-url> --branch <name>
+benchbox app install <bench-path> --site <name> <app>
+benchbox stats          # one-shot CPU/RAM/services snapshot
+benchbox upgrade        # re-run install.sh in place
+```
+
+`--help` works on every command.
+
+## Upgrade and uninstall
 
 ```bash
-benchbox upgrade
+benchbox upgrade        # re-runs install.sh; credentials and logs preserved
+benchbox-uninstall      # removes venv + shims + .desktop; leaves ~/.benchbox/
 ```
 
-That re-runs the install.sh pipeline and replaces the venv + shims. Your
-credentials and log history are untouched.
+To wipe credentials and logs too:
 
-### Installing from a fork / a specific branch
+```bash
+rm -rf ~/.benchbox
+```
+
+## Installing from a fork
 
 ```bash
 BENCHBOX_REPO=https://github.com/you/benchbox.git \
@@ -74,30 +107,31 @@ BENCHBOX_REF=some-branch \
   curl -fsSL https://raw.githubusercontent.com/you/benchbox/some-branch/scripts/install.sh | bash
 ```
 
-Signed `.deb` + `.AppImage` packages are planned for a future release.
-
 ## Repo layout
 
 ```
-core/     # Python library — all install + management logic
-cli/      # Typer-based CLI frontend
-gui/      # PySide6 desktop app
-scripts/  # install.sh / uninstall.sh bootstrap
-assets/   # app icon
-tests/    # Docker-based end-to-end tests
-docs/
+core/      Python library — all install + management logic
+cli/       Typer-based CLI frontend
+gui/       PySide6 desktop app
+scripts/   install.sh / uninstall.sh
+assets/    app icon
+tests/     Docker-based end-to-end tests
+docs/      user-guide.md and screenshots
 ```
 
 ## Roadmap
 
 - [x] **Phase 0** — Foundation (scaffold, CI, license, templates)
 - [x] **Phase 1** — Core: discovery + introspection + live stats
-- [x] **Phase 2** — Core: installer (deps, MariaDB, Node, Redis, wkhtmltopdf)
-- [x] **Phase 3** — Core: bench/site/app operations
+- [x] **Phase 2** — Core: installer (deps, MariaDB, Node, Redis, wkhtmltopdf, bench CLI)
+- [x] **Phase 3** — Core: bench / site / app operations
 - [x] **Phase 4** — CLI frontend
-- [x] **Phase 5** — Desktop GUI (PySide6 — sidebar, stats banner, bench list/detail, installer, sites, apps, logs tail, settings, checkable-app picker in New Site)
-- [x] **Phase 6 (MVP)** — `install.sh` bootstrap + `.desktop` integration + `benchbox upgrade`. Signed `.deb` + `.AppImage` remain for a future release.
-- [ ] **Phase 7** — macOS support, other distros, auto-update detection
+- [x] **Phase 5** — Desktop GUI
+- [x] **Phase 6** — Tabbed detail page, per-site context, sticky process dock, scheduler / maintenance toggles, branch switcher
+- [x] **Phase 7 (MVP)** — `install.sh` bootstrap, `.desktop` integration, `benchbox upgrade`
+- [ ] **Phase 8** — Per-site backup browser, site-config editor, logs-per-site viewer
+- [ ] **Phase 9** — Production setup (nginx / supervisor / lets-encrypt)
+- [ ] **Phase 10** — macOS support, signed `.deb`, AppImage
 
 ## Changelog
 

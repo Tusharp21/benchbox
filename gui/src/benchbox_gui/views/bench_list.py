@@ -50,7 +50,7 @@ class BenchListView(QWidget):
         refresh.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh.clicked.connect(self.refresh)
 
-        self._new_bench = QPushButton("+ New bench")
+        self._new_bench = QPushButton("New bench")
         self._new_bench.setProperty("role", "primary")
         self._new_bench.setCursor(Qt.CursorShape.PointingHandCursor)
         self._new_bench.clicked.connect(self._on_new_bench)
