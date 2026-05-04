@@ -41,6 +41,11 @@ class SiteInfo:
     path: Path
     db_name: str | None
     installed_apps: list[str]
+    # Live toggle state read from site_config.json. Both default to
+    # False for new sites — Frappe omits the keys until something
+    # explicitly flips them.
+    scheduler_paused: bool = False
+    maintenance_mode: bool = False
 
 
 @dataclass(frozen=True)
@@ -200,6 +205,8 @@ def read_sites(bench_path: Path) -> list[SiteInfo]:
         db_name = db_name_raw if isinstance(db_name_raw, str) else None
 
         installed_apps = _read_installed_apps(entry, config)
+        scheduler_paused = _truthy(config.get("pause_scheduler"))
+        maintenance_mode = _truthy(config.get("maintenance_mode"))
 
         result.append(
             SiteInfo(
@@ -207,9 +214,28 @@ def read_sites(bench_path: Path) -> list[SiteInfo]:
                 path=entry,
                 db_name=db_name,
                 installed_apps=installed_apps,
+                scheduler_paused=scheduler_paused,
+                maintenance_mode=maintenance_mode,
             )
         )
     return result
+
+
+def _truthy(value: object) -> bool:
+    """Coerce a JSON value to bool the way Frappe does in site_config.json.
+
+    Frappe writes these keys as integers (``1``/``0``) but tolerant
+    forks sometimes use booleans or the string forms ``"1"``/``"on"``.
+    Any other shape (None, dict, list, …) is treated as the default
+    "off" state.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
 
 
 def _read_installed_apps(site_dir: Path, site_config: dict[str, object]) -> list[str]:

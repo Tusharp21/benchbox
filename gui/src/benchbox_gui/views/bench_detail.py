@@ -191,6 +191,7 @@ class BenchDetailView(QWidget):
             card.install_requested.connect(self._on_install_from_app_card)
             card.uninstall_requested.connect(self._on_uninstall_requested)
             card.remove_requested.connect(self._on_remove_requested)
+            card.switch_branch_requested.connect(self._on_switch_branch_requested)
             app_cards.append(card)
         self._apps_grid.set_cards(app_cards)
 
@@ -408,6 +409,45 @@ class BenchDetailView(QWidget):
 
     def _on_install_from_app_card(self, bench_path: Path, app_name: str) -> None:
         self._open_install_dialog(preselect_bench=bench_path, preselect_app=app_name)
+
+    def _on_switch_branch_requested(
+        self, bench_path: Path, app_name: str, current_branch: str
+    ) -> None:
+        """Prompt for a target branch, then prefill the Free terminal.
+
+        ``bench switch-to-branch`` is bench-wide (it rebuilds the venv
+        and re-checks out every named app), so the natural place to
+        run it is the bench-level Free terminal — not a per-site tab.
+        We pre-fill rather than auto-fire because the command takes
+        several minutes and a typo on the branch name is annoying.
+        """
+        seed = current_branch or ""
+        prompt_label = (
+            f"Switch <b>{app_name}</b> to which branch?<br>"
+            f"<span style='opacity:0.7;'>currently {current_branch or '—'}</span>"
+        )
+        target, ok = QInputDialog.getText(
+            self,
+            "Switch app branch",
+            prompt_label,
+            text=seed,
+        )
+        target = target.strip()
+        if not ok or not target:
+            return
+        if target == current_branch:
+            QMessageBox.information(
+                self,
+                "Same branch",
+                f"<b>{app_name}</b> is already on <b>{target}</b>; nothing to do.",
+            )
+            return
+        # bench switch-to-branch <branch> <apps…> [--upgrade]
+        # We pass --upgrade so requirements/migrations get applied; this
+        # mirrors the Frappe docs' recommended invocation.
+        self._prefill_free_runner(
+            f"bench switch-to-branch {target} {app_name} --upgrade"
+        )
 
     def _open_install_dialog(
         self,

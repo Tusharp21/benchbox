@@ -57,6 +57,7 @@ class AppCard(QFrame):
     install_requested = Signal(Path, str)
     uninstall_requested = Signal(Path, str)
     remove_requested = Signal(Path, str)
+    switch_branch_requested = Signal(Path, str, str)  # bench, app, current_branch
 
     def __init__(
         self,
@@ -116,6 +117,20 @@ class AppCard(QFrame):
             lambda: self.remove_requested.emit(self._bench_path, self._app_name)
         )
 
+        switch_btn = QPushButton("Switch branch")
+        switch_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        switch_btn.setMinimumHeight(32)
+        # Branch switch is bench-wide (``bench switch-to-branch``
+        # operates on the bench's apps directory + venv); we still
+        # parameterise it per-app so a single click pre-fills the
+        # right command.
+        current_branch = app.git_branch or ""
+        switch_btn.clicked.connect(
+            lambda: self.switch_branch_requested.emit(
+                self._bench_path, self._app_name, current_branch
+            )
+        )
+
         if app.name == FRAPPE_APP_NAME:
             # Required by every bench — we don't let the user shoot
             # themselves in the foot even with the typed-confirm.
@@ -130,11 +145,13 @@ class AppCard(QFrame):
         # the buttons align across cards in the grid.
         actions.addWidget(install_btn, 1)
         actions.addWidget(uninstall_btn, 1)
+        actions.addWidget(switch_btn, 1)
         actions.addWidget(remove_btn, 1)
 
         if read_only:
             install_btn.setVisible(False)
             uninstall_btn.setVisible(False)
+            switch_btn.setVisible(False)
             remove_btn.setVisible(False)
 
         # ---- assembly ----------------------------------------------

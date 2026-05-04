@@ -167,9 +167,22 @@ class SiteTab(QWidget):
         grid.setColumnStretch(0, 0)
         grid.setColumnStretch(1, 1)
 
+        scheduler_text = (
+            '<span style="color:#cf222e;font-weight:600;">paused</span>'
+            if self._site.scheduler_paused
+            else '<span style="color:#1a7f37;font-weight:600;">running</span>'
+        )
+        maintenance_text = (
+            '<span style="color:#cf222e;font-weight:600;">on</span>'
+            if self._site.maintenance_mode
+            else '<span style="color:#1a7f37;font-weight:600;">off</span>'
+        )
+
         rows: list[tuple[str, str, bool]] = [
             ("db", self._site.db_name or "—", False),
             ("apps", self._format_apps_value(), True),
+            ("scheduler", scheduler_text, True),
+            ("maintenance", maintenance_text, True),
         ]
 
         for row_idx, (key, value, rich) in enumerate(rows):
@@ -200,34 +213,70 @@ class SiteTab(QWidget):
         return "(none)"
 
     def _build_maintenance_grid(self) -> QGridLayout:
+        """3-column action grid.
+
+        First row covers the routine maintenance commands; second row
+        adds two state-aware toggles (Scheduler + Maintenance mode).
+        Toggle labels read as the *action* clicking will perform — so
+        a paused scheduler shows "Resume scheduler", a running one
+        shows "Pause scheduler". The button picks up the ``danger``
+        role when the site is in a non-default state so the user can
+        spot a paused scheduler / maintenance-on site at a glance.
+        """
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
         grid.setContentsMargins(0, 0, 0, 0)
 
+        site = self._site.name
+
         migrate = self._mk_button("Migrate", role="primary")
-        migrate.clicked.connect(
-            lambda: self._runner.prefill(f"bench --site {self._site.name} migrate")
-        )
+        migrate.clicked.connect(lambda: self._runner.prefill(f"bench --site {site} migrate"))
 
         clear_cache = self._mk_button("Clear cache")
         clear_cache.clicked.connect(
-            lambda: self._runner.prefill(f"bench --site {self._site.name} clear-cache")
+            lambda: self._runner.prefill(f"bench --site {site} clear-cache")
         )
 
         clear_web = self._mk_button("Clear website cache")
         clear_web.clicked.connect(
-            lambda: self._runner.prefill(
-                f"bench --site {self._site.name} clear-website-cache"
-            )
+            lambda: self._runner.prefill(f"bench --site {site} clear-website-cache")
         )
 
         backup = self._mk_button("Backup")
-        backup.clicked.connect(
-            lambda: self._runner.prefill(f"bench --site {self._site.name} backup")
-        )
+        backup.clicked.connect(lambda: self._runner.prefill(f"bench --site {site} backup"))
 
-        buttons = [migrate, clear_cache, clear_web, backup]
+        # State-aware toggles. Build label + role + target command
+        # from ``self._site``; on click, prefill the runner so the
+        # user reviews + Enter (state changes are heavy enough that
+        # an accidental misclick on the wrong site stings).
+        if self._site.scheduler_paused:
+            scheduler = self._mk_button("Resume scheduler", role="danger")
+            scheduler.clicked.connect(
+                lambda: self._runner.prefill(f"bench --site {site} enable-scheduler")
+            )
+        else:
+            scheduler = self._mk_button("Pause scheduler")
+            scheduler.clicked.connect(
+                lambda: self._runner.prefill(f"bench --site {site} disable-scheduler")
+            )
+
+        if self._site.maintenance_mode:
+            maintenance = self._mk_button("Exit maintenance mode", role="danger")
+            maintenance.clicked.connect(
+                lambda: self._runner.prefill(
+                    f"bench --site {site} set-maintenance-mode off"
+                )
+            )
+        else:
+            maintenance = self._mk_button("Enter maintenance mode")
+            maintenance.clicked.connect(
+                lambda: self._runner.prefill(
+                    f"bench --site {site} set-maintenance-mode on"
+                )
+            )
+
+        buttons = [migrate, clear_cache, clear_web, backup, scheduler, maintenance]
         for index, button in enumerate(buttons):
             row, col = divmod(index, 3)
             grid.addWidget(button, row, col)

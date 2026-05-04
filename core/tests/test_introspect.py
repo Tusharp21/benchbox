@@ -41,12 +41,15 @@ def _make_site(
     *,
     db_name: str | None = "db_abc123",
     installed_apps: list[str] | None = None,
+    extra_config: dict[str, object] | None = None,
 ) -> None:
     site = sites_dir / name
     site.mkdir(parents=True, exist_ok=True)
     config: dict[str, object] = {}
     if db_name is not None:
         config["db_name"] = db_name
+    if extra_config:
+        config.update(extra_config)
     site.joinpath("site_config.json").write_text(json.dumps(config))
     if installed_apps is not None:
         site.joinpath("apps.txt").write_text("\n".join(installed_apps) + "\n")
@@ -173,6 +176,39 @@ def test_read_sites_skips_dirs_without_site_config(tmp_path: Path) -> None:
     (bench / "sites" / "not-a-site").mkdir()
     _make_site(bench / "sites", "real.local")
     assert [s.name for s in read_sites(bench)] == ["real.local"]
+
+
+def test_read_sites_defaults_state_keys_to_off(tmp_path: Path) -> None:
+    bench = _make_bench(tmp_path)
+    _make_site(bench / "sites", "fresh.local")
+    sites = read_sites(bench)
+    assert sites[0].scheduler_paused is False
+    assert sites[0].maintenance_mode is False
+
+
+def test_read_sites_picks_up_paused_scheduler(tmp_path: Path) -> None:
+    bench = _make_bench(tmp_path)
+    _make_site(
+        bench / "sites",
+        "paused.local",
+        extra_config={"pause_scheduler": 1, "maintenance_mode": 1},
+    )
+    sites = read_sites(bench)
+    assert sites[0].scheduler_paused is True
+    assert sites[0].maintenance_mode is True
+
+
+def test_read_sites_handles_state_keys_as_strings(tmp_path: Path) -> None:
+    """Some Frappe forks write the bool as a string instead of int 1."""
+    bench = _make_bench(tmp_path)
+    _make_site(
+        bench / "sites",
+        "stringy.local",
+        extra_config={"pause_scheduler": "yes", "maintenance_mode": "off"},
+    )
+    sites = read_sites(bench)
+    assert sites[0].scheduler_paused is True
+    assert sites[0].maintenance_mode is False
 
 
 def test_read_sites_tolerates_malformed_json(tmp_path: Path) -> None:
