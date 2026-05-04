@@ -29,12 +29,13 @@ from pathlib import Path
 from benchbox_core import app as core_app
 from benchbox_core import credentials, discovery, introspect
 from benchbox_core import site as core_site
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QMessageBox,
     QProgressDialog,
+    QScrollArea,
     QSizePolicy,
     QTabWidget,
     QVBoxLayout,
@@ -62,6 +63,21 @@ from benchbox_gui.workers import OperationWorker
 # Tab labels for the two non-site tabs. Site tabs use the site name.
 _APPS_TAB_LABEL = "Apps"
 _FREE_TAB_LABEL = "Free terminal"
+
+
+def _v_scroll(content: QWidget) -> QScrollArea:
+    """Wrap ``content`` in a vertical-only scroll area.
+
+    Horizontal scroll is forbidden — the user wants long content to
+    expand downward rather than off the right edge of the window.
+    """
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    scroll.setWidget(content)
+    return scroll
 
 
 class BenchDetailView(QWidget):
@@ -107,21 +123,23 @@ class BenchDetailView(QWidget):
         self._tabs.setUsesScrollButtons(True)
         self._tabs.setDocumentMode(True)
 
-        # Apps tab — populated in load().
+        # Apps tab — populated in load(). Wrapped in a vertical-scroll
+        # area so a many-app bench scrolls cleanly without ever forcing
+        # horizontal scroll on the page.
         self._apps_grid = CardGrid()
-        apps_tab = QWidget()
-        apps_layout = QVBoxLayout(apps_tab)
+        apps_inner = QWidget()
+        apps_layout = QVBoxLayout(apps_inner)
         apps_layout.setContentsMargins(16, 16, 16, 16)
         apps_layout.addWidget(self._apps_grid, 1)
-        self._tabs.addTab(apps_tab, _APPS_TAB_LABEL)
+        self._tabs.addTab(_v_scroll(apps_inner), _APPS_TAB_LABEL)
 
         # Free terminal tab — bench-wide commands, no site lock.
         self._free_runner = BenchCommandRunner()
-        free_tab = QWidget()
-        free_layout = QVBoxLayout(free_tab)
+        free_inner = QWidget()
+        free_layout = QVBoxLayout(free_inner)
         free_layout.setContentsMargins(16, 16, 16, 16)
         free_layout.addWidget(self._free_runner, 1)
-        self._tabs.addTab(free_tab, _FREE_TAB_LABEL)
+        self._tabs.addTab(_v_scroll(free_inner), _FREE_TAB_LABEL)
 
         # ---- sticky bottom dock ------------------------------------
         self._dock = BenchProcessDock(process_manager)
@@ -185,22 +203,27 @@ class BenchDetailView(QWidget):
         Free terminal tab (last) are left in place.
         """
         # Tear down in reverse so indices are stable while we iterate.
+        # SiteTab lives wrapped inside a QScrollArea — call shutdown via
+        # the bookkeeping dict instead of probing the wrapper.
+        for tab in self._site_tabs.values():
+            tab.shutdown()
         for i in range(self._tabs.count() - 2, 0, -1):
             widget = self._tabs.widget(i)
             self._tabs.removeTab(i)
-            if isinstance(widget, SiteTab):
-                widget.shutdown()
+            if widget is not None:
                 widget.deleteLater()
         self._site_tabs.clear()
 
         # Insert each site tab between Apps (index 0) and Free terminal
-        # (currently the last tab).
+        # (currently the last tab). SiteTab is wrapped in a vertical
+        # scroll area so chip rows + a long command-runner buffer never
+        # force horizontal scroll.
         free_index = self._tabs.count() - 1
         for offset, site in enumerate(info.sites):
             tab = SiteTab(path, site, webserver_port=info.webserver_port)
             tab.drop_requested.connect(self._on_drop_site)
             insert_at = 1 + offset
-            self._tabs.insertTab(insert_at, tab, site.name)
+            self._tabs.insertTab(insert_at, _v_scroll(tab), site.name)
             self._tabs.setTabToolTip(insert_at, f"Working context: {site.name}")
             self._site_tabs[site.name] = tab
             # Keep the free-terminal index up-to-date so we never
@@ -291,9 +314,12 @@ class BenchDetailView(QWidget):
             values = getattr(dialog, "_values", None)
             new_name = getattr(values, "site_name", None) if values is not None else None
             if isinstance(new_name, str) and new_name in self._site_tabs:
-                index = self._tabs.indexOf(self._site_tabs[new_name])
-                if index >= 0:
-                    self._tabs.setCurrentIndex(index)
+                # Tab widget is the scroll wrapper, not the SiteTab; walk
+                # tabs by label since that's what we set when inserting.
+                for i in range(self._tabs.count()):
+                    if self._tabs.tabText(i) == new_name:
+                        self._tabs.setCurrentIndex(i)
+                        break
 
     def _on_get_app(self) -> None:
         if self._current_path is None:

@@ -1,21 +1,24 @@
 """Sticky top header for the bench detail page.
 
-Replaces the flat 7-button :class:`BenchActionRow` with a compact two-row
-header:
+Two-block design with a clear identity for the bench:
 
-- top row: ``← back`` + bench path + meta (frappe / python / branch)
-- action row: dropdown menus (``+ Add ▾`` for create-* mutations,
-  ``Bench ▾`` for bench-level chores) and an ``Open folder`` button
+- top row: ``← back`` (left) + action buttons (right). Buttons are
+  pinned to the top so a wrapped path below doesn't shove them down.
+- title block: a big bench-name heading, the full path rendered in
+  monospace below it (word-wrapped — no horizontal scroll), and a row
+  of version pills (frappe / python / branch).
 
-``bench start`` Start/Stop is owned by :class:`BenchProcessDock`, not this
-header — keeping the header free of process-state coupling so it never
-needs to repaint when the bench transitions running ↔ stopped.
+``bench start`` Start/Stop is owned by :class:`BenchProcessDock`, not
+this header — keeping the header free of process-state coupling so it
+never needs to repaint when the bench transitions running ↔ stopped.
 
 Every action emits a typed signal; the page sequences the dialogs and
 workers. The header itself does no I/O.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
@@ -30,8 +33,27 @@ from PySide6.QtWidgets import (
 )
 
 
+class _Pill(QLabel):
+    """Read-only badge pill with a label-prefix and value (e.g. ``frappe 15.0.0``).
+
+    Painted via the existing ``QLabel[role="badge"]`` style rule so it
+    matches site-tab and bench-card badges. Cheap; no custom paint event.
+    """
+
+    def __init__(self, label: str, value: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        # Prefix in slightly muted weight, value bold-ish — both still
+        # honour the global badge palette.
+        self.setText(
+            f'<span style="opacity:0.7;">{label}</span> '
+            f'<span style="font-weight:600;">{value}</span>'
+        )
+        self.setProperty("role", "badge")
+        self.setTextFormat(Qt.TextFormat.RichText)
+
+
 class BenchDetailHeader(QWidget):
-    """Sticky two-row header above the tab strip."""
+    """Sticky multi-block header above the tab strip."""
 
     back_requested = Signal()
     open_folder_requested = Signal()
@@ -49,19 +71,38 @@ class BenchDetailHeader(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("BenchDetailHeader")
 
         self._back = QPushButton("← back to benches")
         self._back.setProperty("role", "ghost")
         self._back.setCursor(Qt.CursorShape.PointingHandCursor)
         self._back.clicked.connect(self.back_requested.emit)
 
-        self._title = QLabel()
-        self._title.setProperty("role", "h1")
-        self._title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        # Bench name = last path segment. The big visual anchor.
+        self._name = QLabel("—")
+        self._name.setProperty("role", "h1")
+        self._name.setWordWrap(True)
+        self._name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
-        self._meta = QLabel()
-        self._meta.setProperty("role", "dim")
-        self._meta.setTextFormat(self._meta.textFormat().RichText)
+        # Full path in monospace below the name; word-wraps so a deep
+        # ~/projects/... path never forces horizontal scroll on the page.
+        self._path = QLabel("")
+        self._path.setProperty("role", "kbd")
+        self._path.setWordWrap(True)
+        self._path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._path.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
+        # Version pills row.
+        self._frappe_pill = _Pill("frappe", "—")
+        self._python_pill = _Pill("python", "—")
+        self._branch_pill = _Pill("branch", "—")
+        pill_row = QHBoxLayout()
+        pill_row.setContentsMargins(0, 4, 0, 0)
+        pill_row.setSpacing(8)
+        pill_row.addWidget(self._frappe_pill)
+        pill_row.addWidget(self._python_pill)
+        pill_row.addWidget(self._branch_pill)
+        pill_row.addStretch(1)
 
         # ---- "+ Add ▾" dropdown -------------------------------------
         add_menu = QMenu(self)
@@ -79,7 +120,9 @@ class BenchDetailHeader(QWidget):
         # ---- "Bench ▾" dropdown -------------------------------------
         bench_menu = QMenu(self)
         bench_menu.addAction(self._mk_action("⤓ Update bench", self.update_requested.emit))
-        bench_menu.addAction(self._mk_action("↻ Migrate all sites", self.migrate_all_requested.emit))
+        bench_menu.addAction(
+            self._mk_action("↻ Migrate all sites", self.migrate_all_requested.emit)
+        )
         bench_menu.addAction(self._mk_action("⟲ Restart processes", self.restart_requested.emit))
 
         self._bench_btn = QPushButton("Bench  ▾")
@@ -93,26 +136,36 @@ class BenchDetailHeader(QWidget):
         self._folder_btn.clicked.connect(self.open_folder_requested.emit)
 
         # ---- assembly -----------------------------------------------
+        # Top row: back-button (left) + action buttons (right). Action
+        # buttons are top-aligned so a long wrapped path below doesn't
+        # vertically center them awkwardly.
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.setSpacing(12)
-        top_row.addWidget(self._back)
+        top_row.setSpacing(8)
+        top_row.addWidget(self._back, 0, Qt.AlignmentFlag.AlignTop)
         top_row.addStretch(1)
+        top_row.addWidget(self._add_btn, 0, Qt.AlignmentFlag.AlignTop)
+        top_row.addWidget(self._bench_btn, 0, Qt.AlignmentFlag.AlignTop)
+        top_row.addWidget(self._folder_btn, 0, Qt.AlignmentFlag.AlignTop)
 
-        title_row = QHBoxLayout()
-        title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(12)
-        title_row.addWidget(self._title, 1)
-        title_row.addWidget(self._add_btn)
-        title_row.addWidget(self._bench_btn)
-        title_row.addWidget(self._folder_btn)
+        title_block = QVBoxLayout()
+        title_block.setContentsMargins(0, 0, 0, 0)
+        title_block.setSpacing(2)
+        title_block.addWidget(self._name)
+        title_block.addWidget(self._path)
+        title_block.addLayout(pill_row)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 14, 20, 8)
-        layout.setSpacing(4)
+        layout.setSpacing(8)
         layout.addLayout(top_row)
-        layout.addLayout(title_row)
-        layout.addWidget(self._meta)
+        layout.addLayout(title_block)
+
+        # Default minimum width small enough that the header itself never
+        # demands more than the viewport width. Layout will give each
+        # element more room when available.
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
     # --- public API ---------------------------------------------------
 
@@ -124,16 +177,23 @@ class BenchDetailHeader(QWidget):
         python_version: str | None,
         git_branch: str | None,
     ) -> None:
-        """Repaint the title + meta line for ``path``."""
-        self._title.setText(path)
-        meta_parts: list[str] = []
-        if frappe_version:
-            meta_parts.append(f"<b>frappe</b> {frappe_version}")
-        if python_version:
-            meta_parts.append(f"<b>python</b> {python_version}")
-        if git_branch:
-            meta_parts.append(f"<b>branch</b> {git_branch}")
-        self._meta.setText("  •  ".join(meta_parts) if meta_parts else "—")
+        """Repaint the title / path / pills for ``path``."""
+        bench_path = Path(path)
+        # Last directory segment is the visual anchor; full path lives
+        # below in monospace.
+        self._name.setText(bench_path.name or str(bench_path))
+        self._path.setText(str(bench_path))
+        self._frappe_pill.setText(self._format_pill_text("frappe", frappe_version))
+        self._python_pill.setText(self._format_pill_text("python", python_version))
+        self._branch_pill.setText(self._format_pill_text("branch", git_branch))
+
+    @staticmethod
+    def _format_pill_text(label: str, value: str | None) -> str:
+        shown = value if value else "—"
+        return (
+            f'<span style="opacity:0.7;">{label}</span> '
+            f'<span style="font-weight:600;">{shown}</span>'
+        )
 
     # --- helpers ------------------------------------------------------
 
