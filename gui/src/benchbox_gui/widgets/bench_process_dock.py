@@ -59,16 +59,30 @@ class _StatusDot(QFrame):
 
 
 class BenchProcessDock(QWidget):
-    """Sticky bottom dock — Start/Stop + status + collapsible bench-start log.
+    """Sticky bottom dock — Start/Stop + per-site actions + collapsible log.
+
+    Per-site buttons (Open in browser, Drop site) sit inline with
+    Start/Stop because that's what the user looks at while working,
+    and it saves real estate on every site tab. They're context-aware:
+    visible only when a site tab is active. ``set_current_site`` is the
+    hook the page uses to keep the dock in sync with whichever tab the
+    user just clicked.
 
     Signals:
-        start_requested(): user clicked Start; the page should call
-            ``BenchProcessManager.start`` for the current bench.
-        stop_requested(): same, for Stop.
+        start_requested(): user clicked Start.
+        stop_requested(): user clicked Stop.
+        open_browser_requested(str): user clicked Open in browser; the
+            string is the URL the dock currently has cached for the
+            active site.
+        drop_site_requested(str): user clicked Drop site; the string is
+            the site name. The page is responsible for the typed
+            confirmation gate and the actual delete.
     """
 
     start_requested = Signal()
     stop_requested = Signal()
+    open_browser_requested = Signal(str)
+    drop_site_requested = Signal(str)
 
     def __init__(
         self,
@@ -82,6 +96,11 @@ class BenchProcessDock(QWidget):
         self._url: str = ""
         self._user_overrode_collapse: bool = False
         self._expanded: bool = False
+        # Active-site state for the per-site buttons. ``None`` when the
+        # user is on a non-site tab (Apps / Free terminal); the
+        # dock hides the per-site buttons in that case.
+        self._current_site: str | None = None
+        self._current_site_url: str = ""
 
         # ---- header bar (always visible) ----------------------------
         self._dot = _StatusDot()
@@ -109,6 +128,18 @@ class BenchProcessDock(QWidget):
         self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._toggle_btn.clicked.connect(self._on_toggle_clicked)
 
+        # Per-site buttons — hidden until a site tab is active.
+        self._open_browser_btn = QPushButton("Open in browser")
+        self._open_browser_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._open_browser_btn.clicked.connect(self._on_open_browser_clicked)
+        self._open_browser_btn.setVisible(False)
+
+        self._drop_site_btn = QPushButton("Drop site")
+        self._drop_site_btn.setProperty("role", "danger")
+        self._drop_site_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._drop_site_btn.clicked.connect(self._on_drop_site_clicked)
+        self._drop_site_btn.setVisible(False)
+
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(8)
@@ -119,6 +150,10 @@ class BenchProcessDock(QWidget):
         header.addStretch(1)
         header.addWidget(self._start_btn)
         header.addWidget(self._stop_btn)
+        header.addSpacing(6)
+        header.addWidget(self._open_browser_btn)
+        header.addWidget(self._drop_site_btn)
+        header.addSpacing(6)
         header.addWidget(self._toggle_btn)
 
         # ---- log panel (collapsible) --------------------------------
@@ -178,11 +213,47 @@ class BenchProcessDock(QWidget):
     def expanded(self) -> bool:
         return self._expanded
 
+    def set_current_site(self, site_name: str | None, url: str | None = None) -> None:
+        """Tell the dock which site (if any) the user is currently viewing.
+
+        Pass ``None`` when the user switches to a non-site tab (Apps
+        or Free terminal); the dock hides the per-site buttons. When a
+        site is provided, ``url`` is used by the Open in browser
+        action — the page knows the right scheme/port, the dock just
+        opens it.
+        """
+        self._current_site = site_name
+        self._current_site_url = url or ""
+        self._refresh_site_button_visibility()
+
     # --- toggle -------------------------------------------------------
 
     def _on_toggle_clicked(self) -> None:
         self._user_overrode_collapse = True
         self._set_expanded(not self._expanded)
+
+    def _on_open_browser_clicked(self) -> None:
+        if self._current_site_url:
+            self.open_browser_requested.emit(self._current_site_url)
+
+    def _on_drop_site_clicked(self) -> None:
+        if self._current_site is not None:
+            self.drop_site_requested.emit(self._current_site)
+
+    def _refresh_site_button_visibility(self) -> None:
+        """Recompute per-site button visibility from current state.
+
+        Drop site shows whenever a site tab is active; the bench can
+        be stopped (``bench drop-site`` only needs MariaDB). Open in
+        browser additionally requires the bench to be running, since
+        the URL won't resolve otherwise.
+        """
+        has_site = self._current_site is not None
+        bench_running = (
+            self._bench_path is not None and self._manager.is_running(self._bench_path)
+        )
+        self._drop_site_btn.setVisible(has_site)
+        self._open_browser_btn.setVisible(has_site and bench_running)
 
     def _set_expanded(self, expanded: bool) -> None:
         self._expanded = expanded
@@ -211,6 +282,7 @@ class BenchProcessDock(QWidget):
         self._url_link.setVisible(True)
         self._start_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
+        self._refresh_site_button_visibility()
         if not self._user_overrode_collapse:
             self._set_expanded(True)
 
@@ -220,6 +292,7 @@ class BenchProcessDock(QWidget):
         self._url_link.setVisible(False)
         self._start_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
+        self._refresh_site_button_visibility()
         self._apply_status("stopped")
 
     def _apply_status(self, status: str) -> None:

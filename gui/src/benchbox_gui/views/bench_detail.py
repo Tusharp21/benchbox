@@ -144,12 +144,12 @@ class BenchDetailView(QWidget):
         self._dock = BenchProcessDock(process_manager)
         self._dock.start_requested.connect(self._on_start)
         self._dock.stop_requested.connect(self._on_stop)
+        self._dock.open_browser_requested.connect(self._on_open_browser_for_url)
+        self._dock.drop_site_requested.connect(self._on_drop_site_from_dock)
 
-        # Track bench-running state so site tabs can show/hide their
-        # Open in browser button. Subscribing here (rather than in each
-        # SiteTab) keeps the manager → tab fan-out single-sourced.
-        process_manager.process_started.connect(self._on_bench_started)
-        process_manager.process_stopped.connect(self._on_bench_stopped)
+        # Tab switches re-target the dock's per-site buttons; the dock
+        # only knows about the *current* site, not the full list.
+        self._tabs.currentChanged.connect(self._on_tab_changed)
 
         # ---- assembly ----------------------------------------------
         layout = QVBoxLayout(self)
@@ -226,17 +226,14 @@ class BenchDetailView(QWidget):
         # scroll area so chip rows + a long command-runner buffer never
         # force horizontal scroll.
         free_index = self._tabs.count() - 1
-        bench_running = self._process_manager.is_running(path)
         bench_app_names = [a.name for a in info.apps]
         for offset, site in enumerate(info.sites):
             tab = SiteTab(
                 path,
                 site,
                 webserver_port=info.webserver_port,
-                bench_running=bench_running,
                 bench_apps=bench_app_names,
             )
-            tab.delete_site_requested.connect(self._on_delete_site)
             insert_at = 1 + offset
             self._tabs.insertTab(insert_at, _v_scroll(tab), site.name)
             self._tabs.setTabToolTip(insert_at, f"Working context: {site.name}")
@@ -249,6 +246,10 @@ class BenchDetailView(QWidget):
         # respect the user's current tab where possible.
         if self._tabs.currentIndex() < 0 or self._tabs.currentIndex() > free_index:
             self._tabs.setCurrentIndex(0)
+        # Re-sync the dock now that the tab strip's been rebuilt — the
+        # currentChanged signal doesn't fire when we set the index back
+        # to where it already was.
+        self._on_tab_changed(self._tabs.currentIndex())
 
     # --- bench-process actions ---------------------------------------
 
@@ -264,17 +265,35 @@ class BenchDetailView(QWidget):
         if self._current_path is not None:
             open_in_file_manager(self._current_path)
 
-    def _on_bench_started(self, path: Path) -> None:
-        if self._current_path is None or path.resolve() != self._current_path.resolve():
-            return
-        for tab in self._site_tabs.values():
-            tab.set_bench_running(True)
+    def _on_tab_changed(self, _index: int) -> None:
+        """Sync the dock's per-site buttons with the active tab.
 
-    def _on_bench_stopped(self, path: Path, _exit_code: int) -> None:
-        if self._current_path is None or path.resolve() != self._current_path.resolve():
+        Apps + Free terminal tabs map to ``None`` (dock hides the per-
+        site buttons); a site tab maps to that site's name + URL.
+        """
+        widget = self._tabs.currentWidget()
+        site_tab = widget.findChild(SiteTab) if widget is not None else None
+        if site_tab is None:
+            self._dock.set_current_site(None)
             return
-        for tab in self._site_tabs.values():
-            tab.set_bench_running(False)
+        # Tab widget is the QScrollArea wrapper; look up the inner
+        # SiteTab so we can ask it for its URL.
+        port = self._info.webserver_port if self._info is not None else 8000
+        url = f"http://{site_tab.site_name}:{port}"
+        self._dock.set_current_site(site_tab.site_name, url)
+
+    def _on_open_browser_for_url(self, url: str) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        if url:
+            QDesktopServices.openUrl(QUrl(url))
+
+    def _on_drop_site_from_dock(self, site_name: str) -> None:
+        """Dock-emitted Drop site → reuse the existing typed-confirm flow."""
+        if self._current_path is None:
+            return
+        self._on_delete_site(self._current_path, site_name)
 
     # --- bench-level chores from the header dropdown -----------------
 
