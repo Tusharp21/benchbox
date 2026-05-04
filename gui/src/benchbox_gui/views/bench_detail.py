@@ -1,15 +1,25 @@
-"""Detail view for a single bench — single home for every mutating action.
+"""Detail view for a single bench — the working canvas for one bench.
 
-Top of the view: bench metadata + an action row (Start / Stop / Open
-folder / + New site / + Get app / + New app / Restore).
+Layout (top → bottom):
 
-Below: two terminal panes (the live ``bench start`` log on top, an
-interactive command runner below), then two stacked card grids — Apps
-and Sites — using the same :class:`AppCard` / :class:`SiteCard` widgets
-as the read-only Apps / Sites tabs. Every per-card action (Install on
-site, Uninstall, Remove, Drop) is wired through the bench-detail
-handlers here, so the global tabs can stay informational and this page
-becomes the single place to act on a bench.
+- :class:`BenchDetailHeader` — sticky, holds back / title / + Add ▾ /
+  Bench ▾ / Open folder.
+- :class:`QTabWidget` — the working area:
+    * **Apps** tab (always first) — :class:`AppCard` grid for every app
+      registered in the bench, with per-card install / uninstall / remove
+      actions.
+    * One :class:`SiteTab` per site — clickable URL, app badges, quick
+      chips, and a :class:`BenchCommandRunner` whose chips are scoped to
+      that site.
+    * **Free terminal** tab (always last) — bench-wide command runner
+      with no site locked; used for ``bench migrate`` / ``bench update``
+      etc.
+- :class:`BenchProcessDock` — sticky bottom, owns Start/Stop and the
+  collapsible bench-start log.
+
+Signal flow: child widgets emit typed signals; this view sequences the
+dialogs, ``QInputDialog`` confirms, and operation workers, then calls
+:meth:`refresh` so the tabs re-render with fresh introspection data.
 """
 
 from __future__ import annotations
@@ -19,28 +29,23 @@ from pathlib import Path
 from benchbox_core import app as core_app
 from benchbox_core import credentials, discovery, introspect
 from benchbox_core import site as core_site
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QGroupBox,
     QHBoxLayout,
     QInputDialog,
-    QLabel,
     QMessageBox,
     QProgressDialog,
-    QPushButton,
-    QScrollArea,
     QSizePolicy,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from benchbox_gui.services.bench_processes import BenchProcessManager
 from benchbox_gui.widgets.app_card import AppCard
-from benchbox_gui.widgets.bench_actions import (
-    BenchActionRow,
-    BenchProcessPanel,
-    open_in_file_manager,
-)
+from benchbox_gui.widgets.bench_actions import open_in_file_manager
+from benchbox_gui.widgets.bench_detail_header import BenchDetailHeader
+from benchbox_gui.widgets.bench_process_dock import BenchProcessDock
 from benchbox_gui.widgets.card_grid import CardGrid
 from benchbox_gui.widgets.command_runner import BenchCommandRunner
 from benchbox_gui.widgets.dialogs import (
@@ -51,12 +56,16 @@ from benchbox_gui.widgets.dialogs import (
     RestoreSiteDialog,
     TypedNameConfirmDialog,
 )
-from benchbox_gui.widgets.site_card import SiteCard
+from benchbox_gui.widgets.site_tab import SiteTab
 from benchbox_gui.workers import OperationWorker
+
+# Tab labels for the two non-site tabs. Site tabs use the site name.
+_APPS_TAB_LABEL = "Apps"
+_FREE_TAB_LABEL = "Free terminal"
 
 
 class BenchDetailView(QWidget):
-    """Single home for every per-bench mutation."""
+    """Single home for every per-bench mutation, organised as tabs."""
 
     back_requested = Signal()
 
@@ -66,113 +75,91 @@ class BenchDetailView(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._process_manager = process_manager
         self._current_path: Path | None = None
         self._info: introspect.BenchInfo | None = None
-        # short-op spinner for fast mutations (drop / uninstall / remove);
-        # long-running ones use the live-log dialogs and don't touch this.
+        # Active SiteTab widgets keyed by site name. Lets us preserve
+        # per-site state (log buffer, in-flight command) across refreshes
+        # so the user doesn't lose `migrate` output mid-run if some
+        # unrelated event triggers a reload.
+        self._site_tabs: dict[str, SiteTab] = {}
+        # Spinner for fast mutations (drop / uninstall / remove); long
+        # ones use the live-log dialogs and don't touch this.
         self._worker: OperationWorker | None = None
         self._progress: QProgressDialog | None = None
 
-        back = QPushButton("← back to benches")
-        back.setProperty("role", "ghost")
-        back.clicked.connect(self.back_requested.emit)
-        header_row = QHBoxLayout()
-        header_row.addWidget(back)
-        header_row.addStretch(1)
+        # ---- sticky top header -------------------------------------
+        self._header = BenchDetailHeader()
+        self._header.back_requested.connect(self.back_requested.emit)
+        self._header.open_folder_requested.connect(self._on_open_folder)
+        self._header.new_site_requested.connect(self._on_new_site)
+        self._header.get_app_requested.connect(self._on_get_app)
+        self._header.new_app_requested.connect(self._on_new_app)
+        self._header.restore_site_requested.connect(self._on_restore_site)
+        self._header.update_requested.connect(self._on_bench_update)
+        self._header.migrate_all_requested.connect(self._on_migrate_all)
+        self._header.restart_requested.connect(self._on_bench_restart)
 
-        self._title = QLabel()
-        self._title.setProperty("role", "h1")
-        self._meta = QLabel()
-        self._meta.setTextFormat(self._meta.textFormat().RichText)
+        # ---- main tab strip ----------------------------------------
+        self._tabs = QTabWidget()
+        self._tabs.setMovable(False)
+        self._tabs.setTabsClosable(False)
+        self._tabs.setUsesScrollButtons(True)
+        self._tabs.setDocumentMode(True)
 
-        self._actions = BenchActionRow()
-        self._actions.start_requested.connect(self._on_start)
-        self._actions.stop_requested.connect(self._on_stop)
-        self._actions.open_folder_requested.connect(self._on_open_folder)
-        self._actions.new_site_requested.connect(self._on_new_site)
-        self._actions.get_app_requested.connect(self._on_get_app)
-        self._actions.new_app_requested.connect(self._on_new_app)
-        self._actions.restore_site_requested.connect(self._on_restore_site)
-
-        self._process = BenchProcessPanel(process_manager)
-        self._process.started.connect(lambda: self._actions.set_running(True))
-        self._process.stopped.connect(lambda: self._actions.set_running(False))
-
-        self._command_runner = BenchCommandRunner()
-
-        # Card grids for apps and sites — same widgets the read-only tabs
-        # use, but mutating actions stay enabled here.
+        # Apps tab — populated in load().
         self._apps_grid = CardGrid()
-        self._sites_grid = CardGrid()
+        apps_tab = QWidget()
+        apps_layout = QVBoxLayout(apps_tab)
+        apps_layout.setContentsMargins(16, 16, 16, 16)
+        apps_layout.addWidget(self._apps_grid, 1)
+        self._tabs.addTab(apps_tab, _APPS_TAB_LABEL)
 
-        apps_box = QGroupBox("Apps")
-        apps_layout = QVBoxLayout(apps_box)
-        apps_layout.setContentsMargins(12, 12, 12, 12)
-        apps_layout.addWidget(self._apps_grid)
-        apps_box.setMinimumHeight(220)
+        # Free terminal tab — bench-wide commands, no site lock.
+        self._free_runner = BenchCommandRunner()
+        free_tab = QWidget()
+        free_layout = QVBoxLayout(free_tab)
+        free_layout.setContentsMargins(16, 16, 16, 16)
+        free_layout.addWidget(self._free_runner, 1)
+        self._tabs.addTab(free_tab, _FREE_TAB_LABEL)
 
-        sites_box = QGroupBox("Sites")
-        sites_layout = QVBoxLayout(sites_box)
-        sites_layout.setContentsMargins(12, 12, 12, 12)
-        sites_layout.addWidget(self._sites_grid)
-        sites_box.setMinimumHeight(220)
+        # ---- sticky bottom dock ------------------------------------
+        self._dock = BenchProcessDock(process_manager)
+        self._dock.start_requested.connect(self._on_start)
+        self._dock.stop_requested.connect(self._on_stop)
 
-        process_box = QGroupBox("Bench process — bench start logs")
-        process_layout = QVBoxLayout(process_box)
-        process_layout.setContentsMargins(8, 8, 8, 8)
-        process_layout.addWidget(self._process)
-        process_box.setMinimumHeight(280)
-
-        commands_box = QGroupBox("Run commands")
-        commands_layout = QVBoxLayout(commands_box)
-        commands_layout.setContentsMargins(8, 8, 8, 8)
-        commands_layout.addWidget(self._command_runner)
-        commands_box.setMinimumHeight(280)
-
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(20, 16, 20, 16)
-        content_layout.setSpacing(12)
-        content_layout.addLayout(header_row)
-        content_layout.addWidget(self._title)
-        content_layout.addWidget(self._meta)
-        content_layout.addWidget(self._actions)
-        content_layout.addWidget(process_box)
-        content_layout.addWidget(commands_box)
-        content_layout.addWidget(apps_box)
-        content_layout.addWidget(sites_box)
-        content_layout.addStretch(1)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setWidget(content)
-        scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
+        # ---- assembly ----------------------------------------------
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(scroll)
+        layout.addWidget(self._header)
+        layout.addWidget(self._tabs, 1)
+        layout.addWidget(self._dock)
+
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     # --- loading ------------------------------------------------------
 
     def load(self, path: Path) -> None:
+        """(Re)render the entire detail view for ``path``.
+
+        Drops every site tab and rebuilds them from fresh introspection.
+        Apps tab + Free terminal tab are repopulated in place.
+        """
         self._current_path = path
         self._info = introspect.introspect(path)
         info = self._info
-        self._process.set_bench(path, webserver_port=info.webserver_port)
-        self._command_runner.set_bench(path, [s.name for s in info.sites])
-        self._title.setText(str(info.path))
-        self._meta.setText(
-            "<table cellpadding='2'>"
-            f"<tr><td><b>frappe</b></td><td>{info.frappe_version or '-'}</td></tr>"
-            f"<tr><td><b>python</b></td><td>{info.python_version or '-'}</td></tr>"
-            f"<tr><td><b>branch</b></td><td>{info.git_branch or '-'}</td></tr>"
-            "</table>"
+
+        self._header.set_bench(
+            path=str(info.path),
+            frappe_version=info.frappe_version,
+            python_version=info.python_version,
+            git_branch=info.git_branch,
         )
 
-        # Populate apps grid with action-enabled cards.
+        self._dock.set_bench(path, webserver_port=info.webserver_port)
+
+        # Apps tab — rebuild card grid in place.
         app_cards: list[QWidget] = []
         for app in info.apps:
             card = AppCard(path, app)
@@ -182,26 +169,88 @@ class BenchDetailView(QWidget):
             app_cards.append(card)
         self._apps_grid.set_cards(app_cards)
 
-        # Populate sites grid with action-enabled cards.
-        site_cards: list[QWidget] = []
-        for site in info.sites:
-            card = SiteCard(path, site)
-            card.install_app_requested.connect(self._on_install_app_on_site)
-            card.drop_requested.connect(self._on_drop_site)
-            site_cards.append(card)
-        self._sites_grid.set_cards(site_cards)
+        # Free terminal — refresh bench path + site list (for chip
+        # suggestions, even though no site is locked).
+        self._free_runner.set_bench(path, [s.name for s in info.sites])
+
+        # Site tabs — drop old, build fresh. Order: Apps, [site tabs],
+        # Free terminal.
+        self._rebuild_site_tabs(info, path)
+
+    def _rebuild_site_tabs(self, info: introspect.BenchInfo, path: Path) -> None:
+        """Replace every site tab with a fresh SiteTab per site.
+
+        Removes existing site tabs in reverse order (so QTabWidget
+        indices stay valid as we tear down). The Apps tab (index 0) and
+        Free terminal tab (last) are left in place.
+        """
+        # Tear down in reverse so indices are stable while we iterate.
+        for i in range(self._tabs.count() - 2, 0, -1):
+            widget = self._tabs.widget(i)
+            self._tabs.removeTab(i)
+            if isinstance(widget, SiteTab):
+                widget.shutdown()
+                widget.deleteLater()
+        self._site_tabs.clear()
+
+        # Insert each site tab between Apps (index 0) and Free terminal
+        # (currently the last tab).
+        free_index = self._tabs.count() - 1
+        for offset, site in enumerate(info.sites):
+            tab = SiteTab(path, site, webserver_port=info.webserver_port)
+            tab.drop_requested.connect(self._on_drop_site)
+            insert_at = 1 + offset
+            self._tabs.insertTab(insert_at, tab, site.name)
+            self._tabs.setTabToolTip(insert_at, f"Working context: {site.name}")
+            self._site_tabs[site.name] = tab
+            # Keep the free-terminal index up-to-date so we never
+            # accidentally insert past it.
+            free_index = insert_at + 1
+
+        # Sanity: Apps stays selected on first load; later refreshes
+        # respect the user's current tab where possible.
+        if self._tabs.currentIndex() < 0 or self._tabs.currentIndex() > free_index:
+            self._tabs.setCurrentIndex(0)
 
     # --- bench-process actions ---------------------------------------
 
     def _on_start(self) -> None:
-        self._process.start()
+        if self._current_path is not None:
+            self._process_manager.start(self._current_path)
 
     def _on_stop(self) -> None:
-        self._process.stop()
+        if self._current_path is not None:
+            self._process_manager.stop(self._current_path)
 
     def _on_open_folder(self) -> None:
         if self._current_path is not None:
             open_in_file_manager(self._current_path)
+
+    # --- bench-level chores from the header dropdown -----------------
+
+    def _on_bench_update(self) -> None:
+        self._prefill_free_runner("bench update")
+
+    def _on_migrate_all(self) -> None:
+        self._prefill_free_runner("bench migrate")
+
+    def _on_bench_restart(self) -> None:
+        self._prefill_free_runner("bench restart")
+
+    def _prefill_free_runner(self, command: str) -> None:
+        """Drop ``command`` into the bench-wide runner and switch tabs.
+
+        Bench-level chores are heavy enough that we want the user to
+        review/Enter rather than fire-and-forget. The Free terminal tab
+        is the natural home for non-site commands, so we open it pointed
+        at the right command and let the user confirm.
+        """
+        # Free terminal is the last tab; switch the user there so they
+        # see the prefilled command.
+        free_index = self._tabs.count() - 1
+        self._tabs.setCurrentIndex(free_index)
+        self._free_runner._input.setText(command)  # noqa: SLF001
+        self._free_runner._input.setFocus()  # noqa: SLF001
 
     # --- shared helpers ----------------------------------------------
 
@@ -221,7 +270,7 @@ class BenchDetailView(QWidget):
         if self._current_path is not None:
             self.load(self._current_path)
 
-    # --- top action-row handlers (long ops via LiveLogDialog) --------
+    # --- header dropdown handlers (long ops via LiveLogDialog) -------
 
     def _on_new_site(self) -> None:
         if self._current_path is None:
@@ -237,6 +286,14 @@ class BenchDetailView(QWidget):
         )
         if dialog.exec() == dialog.DialogCode.Accepted:
             self._refresh_after_op()
+            # Try to switch to the newly-created site tab so the user
+            # immediately sees their new working context.
+            values = getattr(dialog, "_values", None)
+            new_name = getattr(values, "site_name", None) if values is not None else None
+            if isinstance(new_name, str) and new_name in self._site_tabs:
+                index = self._tabs.indexOf(self._site_tabs[new_name])
+                if index >= 0:
+                    self._tabs.setCurrentIndex(index)
 
     def _on_get_app(self) -> None:
         if self._current_path is None:
@@ -279,9 +336,6 @@ class BenchDetailView(QWidget):
 
     def _on_install_from_app_card(self, bench_path: Path, app_name: str) -> None:
         self._open_install_dialog(preselect_bench=bench_path, preselect_app=app_name)
-
-    def _on_install_app_on_site(self, bench_path: Path, site_name: str) -> None:
-        self._open_install_dialog(preselect_bench=bench_path, preselect_site=site_name)
 
     def _open_install_dialog(
         self,
@@ -416,6 +470,9 @@ class BenchDetailView(QWidget):
 
     def _on_short_op_success(self, message: str) -> None:
         self._close_progress()
+        # After a drop, prefer landing on the Apps tab so the user isn't
+        # staring at a now-stale site tab.
+        self._tabs.setCurrentIndex(0)
         self._refresh_after_op()
         QMessageBox.information(self, "Done", message)
 
@@ -426,13 +483,15 @@ class BenchDetailView(QWidget):
     # --- shutdown hook -----------------------------------------------
 
     def shutdown(self) -> None:
-        """Kill any in-flight runner command — invoked by MainWindow on quit.
+        """Kill any in-flight runner command in any tab.
 
-        ``BenchProcessManager`` handles its own ``bench start`` cleanup;
-        this only covers the dev-command pane which owns its own
-        :class:`QProcess` outside the manager.
+        ``BenchProcessManager`` cleans up its own bench-start processes;
+        this only covers the per-tab :class:`BenchCommandRunner`s that
+        own their own QProcess outside the manager.
         """
-        self._command_runner.shutdown()
+        self._free_runner.shutdown()
+        for tab in self._site_tabs.values():
+            tab.shutdown()
 
 
 # Re-export discovery for any caller that previously imported it from

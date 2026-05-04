@@ -97,6 +97,22 @@ def test_finished_re_enables_run_button(
     assert runner._cancel_btn.isEnabled() is False
 
 
+def test_locked_site_hides_dropdown_and_scopes_chips(qtbot: QtBot, tmp_path: Path) -> None:
+    runner = BenchCommandRunner(locked_site="locked-site")
+    qtbot.addWidget(runner)
+    runner.set_bench(tmp_path, ["other-site"])
+
+    # Dropdown is invisible in locked mode.
+    assert runner._site_select.isVisible() is False
+    assert runner._site_label.isVisible() is False
+
+    migrate_builder = next(b for label, b in DEFAULT_QUICK_ACTIONS if label == "bench migrate")
+    runner._fill_from_chip(migrate_builder)
+    # The chip must use the locked site — never whatever the dropdown
+    # *would* have shown.
+    assert runner._input.text() == "bench --site locked-site migrate"
+
+
 def test_shutdown_kills_inflight(
     qtbot: QtBot, runner: BenchCommandRunner, tmp_path: Path
 ) -> None:

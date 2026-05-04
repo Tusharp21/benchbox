@@ -91,10 +91,20 @@ class BenchCommandRunner(QWidget):
     command_started = Signal(str)
     command_finished = Signal(int)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        locked_site: str | None = None,
+    ) -> None:
         super().__init__(parent)
         self._bench_path: Path | None = None
         self._site_names: list[str] = []
+        # When set, the dropdown is hidden and every chip-builder receives
+        # this site as its argument. The tab's label already tells the user
+        # which site they're acting on, so a redundant dropdown would just
+        # be noise. Free-form input still runs verbatim.
+        self._locked_site: str | None = locked_site
         # Lazy-import keeps the widget testable without importing QtCore
         # at module load when only the pure-Python helpers are used.
         from PySide6.QtCore import QProcess
@@ -105,9 +115,13 @@ class BenchCommandRunner(QWidget):
         # ----- top row: site selector + status text ------------------
         site_label = QLabel("site:")
         site_label.setProperty("role", "dim")
+        self._site_label = site_label
         self._site_select = QComboBox()
         self._site_select.setMinimumWidth(180)
         self._site_select.addItem("(no site selected)", "")
+        if locked_site is not None:
+            self._site_label.setVisible(False)
+            self._site_select.setVisible(False)
 
         self._status = QLabel("idle")
         self._status.setProperty("role", "dim")
@@ -240,6 +254,8 @@ class BenchCommandRunner(QWidget):
     # --- chip / input plumbing ---------------------------------------
 
     def _selected_site(self) -> str:
+        if self._locked_site is not None:
+            return self._locked_site
         return str(self._site_select.currentData() or "")
 
     def _fill_from_chip(self, builder: Callable[[str], str]) -> None:
