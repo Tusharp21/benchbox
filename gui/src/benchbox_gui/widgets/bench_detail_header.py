@@ -73,7 +73,7 @@ class BenchDetailHeader(QWidget):
         super().__init__(parent)
         self.setObjectName("BenchDetailHeader")
 
-        self._back = QPushButton("← back to benches")
+        self._back = QPushButton("Back to benches")
         self._back.setProperty("role", "ghost")
         self._back.setCursor(Qt.CursorShape.PointingHandCursor)
         self._back.clicked.connect(self.back_requested.emit)
@@ -104,28 +104,28 @@ class BenchDetailHeader(QWidget):
         pill_row.addWidget(self._branch_pill)
         pill_row.addStretch(1)
 
-        # ---- "+ Add ▾" dropdown -------------------------------------
+        # ---- Add dropdown -------------------------------------------
         add_menu = QMenu(self)
-        add_menu.addAction(self._mk_action("+ New site", self.new_site_requested.emit))
-        add_menu.addAction(self._mk_action("+ Get app", self.get_app_requested.emit))
-        add_menu.addAction(self._mk_action("+ New app", self.new_app_requested.emit))
+        add_menu.addAction(self._mk_action("New site", self.new_site_requested.emit))
+        add_menu.addAction(self._mk_action("Get app", self.get_app_requested.emit))
+        add_menu.addAction(self._mk_action("New app", self.new_app_requested.emit))
         add_menu.addSeparator()
-        add_menu.addAction(self._mk_action("⟲ Restore site", self.restore_site_requested.emit))
+        add_menu.addAction(self._mk_action("Restore site", self.restore_site_requested.emit))
 
-        self._add_btn = QPushButton("+ Add  ▾")
+        self._add_btn = QPushButton("Add...")
         self._add_btn.setProperty("role", "primary")
         self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_btn.setMenu(add_menu)
 
-        # ---- "Bench ▾" dropdown -------------------------------------
+        # ---- Bench dropdown -----------------------------------------
         bench_menu = QMenu(self)
-        bench_menu.addAction(self._mk_action("⤓ Update bench", self.update_requested.emit))
+        bench_menu.addAction(self._mk_action("Update bench", self.update_requested.emit))
         bench_menu.addAction(
-            self._mk_action("↻ Migrate all sites", self.migrate_all_requested.emit)
+            self._mk_action("Migrate all sites", self.migrate_all_requested.emit)
         )
-        bench_menu.addAction(self._mk_action("⟲ Restart processes", self.restart_requested.emit))
+        bench_menu.addAction(self._mk_action("Restart processes", self.restart_requested.emit))
 
-        self._bench_btn = QPushButton("Bench  ▾")
+        self._bench_btn = QPushButton("Bench...")
         self._bench_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._bench_btn.setMenu(bench_menu)
 

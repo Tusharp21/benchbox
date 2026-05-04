@@ -51,27 +51,27 @@ _NVM_BOOTSTRAP_PREFIX: str = (
 QuickAction = tuple[str, Callable[[str], str]]
 
 DEFAULT_QUICK_ACTIONS: tuple[QuickAction, ...] = (
-    ("bench update", lambda _site: "bench update"),
+    ("Update bench", lambda _site: "bench update"),
     (
-        "bench migrate",
+        "Migrate",
         lambda site: f"bench --site {site} migrate" if site else "bench migrate",
     ),
-    ("bench restart", lambda _site: "bench restart"),
+    ("Restart", lambda _site: "bench restart"),
     (
-        "clear cache",
+        "Clear cache",
         lambda site: (
             f"bench --site {site} clear-cache" if site else "bench clear-cache"
         ),
     ),
     (
-        "clear-website-cache",
+        "Clear website cache",
         lambda site: (
             f"bench --site {site} clear-website-cache"
             if site
             else "bench clear-website-cache"
         ),
     ),
-    ("bench --help", lambda _site: "bench --help"),
+    ("Help", lambda _site: "bench --help"),
 )
 
 # Cap the runner's history; long pip resolves can spew thousands of lines.

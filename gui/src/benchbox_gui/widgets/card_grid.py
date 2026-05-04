@@ -1,9 +1,16 @@
 """Responsive grid of cards, used by Bench / Site / App list views.
 
 Lays cards out in N equal columns based on the viewport width:
-- ≥ 1400 px → 3 columns
-- ≥  900 px → 2 columns
+- ≥ 1100 px → 3 columns
+- ≥  640 px → 2 columns
 - otherwise → 1 column
+
+Breakpoints are tuned to the bench-detail page where the sidebar
+already eats ~220px and the QScrollArea steals another ~16px for the
+scroll-bar reservation, so a 1200px window leaves ~960px for the grid.
+At those widths the user expects at least two columns, so the
+threshold for the second column is well below the page's typical
+working width.
 
 Cards keep their natural height; the grid owns spacing + column count.
 Clients swap the underlying list with :meth:`set_cards`.
@@ -15,11 +22,11 @@ from collections.abc import Sequence
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QResizeEvent
-from PySide6.QtWidgets import QGridLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QSizePolicy, QWidget
 
 COL_BREAKPOINTS: tuple[tuple[int, int], ...] = (
-    (1400, 3),
-    (900, 2),
+    (1100, 3),
+    (640, 2),
     (0, 1),
 )
 
@@ -43,6 +50,12 @@ class CardGrid(QWidget):
         self._layout.setHorizontalSpacing(spacing)
         self._layout.setVerticalSpacing(spacing)
         self._layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # Without Expanding, the grid takes its sizeHint width (= one
+        # card's width) and the breakpoint logic always lands on a
+        # single column. Forcing Expanding makes Qt hand us the full
+        # viewport width on resizeEvent so cols_for(...) sees something
+        # realistic.
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
     # ------------------------------------------------------------------
 

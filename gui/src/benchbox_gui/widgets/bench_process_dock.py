@@ -94,17 +94,17 @@ class BenchProcessDock(QWidget):
         self._url_link.setCursor(Qt.CursorShape.PointingHandCursor)
         self._url_link.setVisible(False)
 
-        self._start_btn = QPushButton("▶ Start bench")
+        self._start_btn = QPushButton("Start bench")
         self._start_btn.setProperty("role", "primary")
         self._start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._start_btn.clicked.connect(self.start_requested.emit)
 
-        self._stop_btn = QPushButton("■ Stop")
+        self._stop_btn = QPushButton("Stop")
         self._stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._stop_btn.clicked.connect(self.stop_requested.emit)
         self._stop_btn.setEnabled(False)
 
-        self._toggle_btn = QPushButton("▾ Logs")
+        self._toggle_btn = QPushButton("Show logs")
         self._toggle_btn.setProperty("role", "ghost")
         self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._toggle_btn.clicked.connect(self._on_toggle_clicked)
@@ -187,7 +187,7 @@ class BenchProcessDock(QWidget):
     def _set_expanded(self, expanded: bool) -> None:
         self._expanded = expanded
         self._log.setVisible(expanded)
-        self._toggle_btn.setText("▴ Hide logs" if expanded else "▾ Show logs")
+        self._toggle_btn.setText("Hide logs" if expanded else "Show logs")
 
     # --- manager handlers --------------------------------------------
 

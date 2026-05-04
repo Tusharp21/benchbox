@@ -49,7 +49,7 @@ def test_chip_with_site_selected_emits_site_form(
     runner._site_select.setCurrentIndex(1)  # "acme"
 
     # Find the migrate chip and trigger its handler.
-    migrate_builder = next(b for label, b in DEFAULT_QUICK_ACTIONS if label == "bench migrate")
+    migrate_builder = next(b for label, b in DEFAULT_QUICK_ACTIONS if label == "Migrate")
     runner._fill_from_chip(migrate_builder)
     assert runner._input.text() == "bench --site acme migrate"
 
@@ -60,7 +60,7 @@ def test_chip_without_site_emits_global_form(
     runner.set_bench(tmp_path, ["acme"])
     # Sentinel "(no site selected)" is index 0.
     runner._site_select.setCurrentIndex(0)
-    migrate_builder = next(b for label, b in DEFAULT_QUICK_ACTIONS if label == "bench migrate")
+    migrate_builder = next(b for label, b in DEFAULT_QUICK_ACTIONS if label == "Migrate")
     runner._fill_from_chip(migrate_builder)
     assert runner._input.text() == "bench migrate"
 
@@ -106,7 +106,7 @@ def test_locked_site_hides_dropdown_and_scopes_chips(qtbot: QtBot, tmp_path: Pat
     assert runner._site_select.isVisible() is False
     assert runner._site_label.isVisible() is False
 
-    migrate_builder = next(b for label, b in DEFAULT_QUICK_ACTIONS if label == "bench migrate")
+    migrate_builder = next(b for label, b in DEFAULT_QUICK_ACTIONS if label == "Migrate")
     runner._fill_from_chip(migrate_builder)
     # The chip must use the locked site — never whatever the dropdown
     # *would* have shown.

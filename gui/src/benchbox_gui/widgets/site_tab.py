@@ -1,14 +1,23 @@
 """One tab in the bench detail view, scoped to a single site.
 
-Contains everything the user usually wants when they're working on a
-specific site: a clickable URL, badges for installed apps, a row of
-quick-action chips (migrate / clear cache / open in browser / drop) and
-a :class:`BenchCommandRunner` whose chips and free-form input run
-``bench --site <this-site> ...``.
+Layout, top → bottom:
 
-Per-site quick chips emit signals so the parent page can sequence
-dialogs / confirmations / refreshes — this widget itself does no I/O
-beyond what the embedded command runner spawns.
+- Compact info strip — small dim labels for ``db`` and ``apps installed``.
+  No links or badges; just the facts the user needs to remember which
+  site they're working on.
+- A grid of action buttons — every site-level option lives here as a
+  proper :class:`QPushButton`: Open in browser, Migrate, Clear cache,
+  Clear website cache, Backup, Drop site (the last one styled as
+  danger).
+- A :class:`BenchCommandRunner` whose chips and free-form input run
+  ``bench --site <this-site> ...`` so any further command targets this
+  site by default.
+
+The buttons emit either signals (Drop) or pre-fill the embedded runner
+with the relevant ``bench --site …`` invocation; the user reviews the
+filled command and presses Enter. We never fire-and-forget a bench
+mutation from a click — that's how foot-guns happen on heavy
+operations.
 """
 
 from __future__ import annotations
@@ -19,7 +28,7 @@ from benchbox_core import introspect
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -41,9 +50,6 @@ class SiteTab(QWidget):
 
     Signals:
         drop_requested(Path, str): user clicked Drop site (bench_path, site_name).
-        installed_apps_changed_hint(): emitted after a chip the page can
-            reasonably expect to mutate apps (e.g. install). Currently
-            unused — reserved for Phase 3 chips.
     """
 
     drop_requested = Signal(Path, str)
@@ -61,80 +67,69 @@ class SiteTab(QWidget):
         self._site = site
         self._url = f"http://{site.name}:{webserver_port}"
 
-        # ---- top info strip ----------------------------------------
-        url_label = QLabel(
-            f'<a href="{self._url}" '
-            f'style="color:#8250df;text-decoration:none;font-weight:600;">'
-            f"{site.name} ↗</a>"
-        )
-        url_label.setOpenExternalLinks(True)
-        url_label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
-        url_label.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        db_label = QLabel(f"<b>db</b> {site.db_name or '—'}")
-        db_label.setProperty("role", "dim")
-
+        # ---- compact info strip -------------------------------------
+        # Dim labels only — every interactive thing lives below as a
+        # button. Keeping this row visual-only stops the page reading
+        # like a status panel.
         info_row = QHBoxLayout()
         info_row.setContentsMargins(0, 0, 0, 0)
         info_row.setSpacing(16)
-        info_row.addWidget(url_label)
+
+        db_label = QLabel(f"<b>db</b> {site.db_name or '—'}")
+        db_label.setProperty("role", "dim")
         info_row.addWidget(db_label)
-        info_row.addStretch(1)
 
-        # ---- app badges --------------------------------------------
-        badges_row = QHBoxLayout()
-        badges_row.setContentsMargins(0, 0, 0, 0)
-        badges_row.setSpacing(6)
-        badges_label = QLabel("apps:")
-        badges_label.setProperty("role", "dim")
-        badges_row.addWidget(badges_label)
-        if site.installed_apps:
-            for app in site.installed_apps:
-                badge = QLabel(app)
-                badge.setProperty("role", "badge")
-                badges_row.addWidget(badge)
-        else:
-            empty = QLabel("(no apps installed yet)")
-            empty.setProperty("role", "dim")
-            badges_row.addWidget(empty)
-        badges_row.addStretch(1)
+        apps_text = ", ".join(site.installed_apps) if site.installed_apps else "(none)"
+        apps_label = QLabel(f"<b>apps</b> {apps_text}")
+        apps_label.setProperty("role", "dim")
+        apps_label.setWordWrap(True)
+        info_row.addWidget(apps_label, 1)
 
-        # ---- quick action chips ------------------------------------
-        chip_row = QHBoxLayout()
-        chip_row.setContentsMargins(0, 0, 0, 0)
-        chip_row.setSpacing(8)
+        # ---- action grid -------------------------------------------
+        # 3-column responsive-ish grid of buttons. Every action the
+        # user can take on this site is here, all uniform shape and
+        # weight, so the page reads as "pick what to do" rather than
+        # "skim a status panel".
+        action_grid = QGridLayout()
+        action_grid.setHorizontalSpacing(8)
+        action_grid.setVerticalSpacing(8)
+        action_grid.setContentsMargins(0, 0, 0, 0)
 
-        migrate = self._mk_chip("↻ Migrate", role="primary")
-        migrate.clicked.connect(lambda: self._fill_runner_with(f"bench --site {site.name} migrate"))
+        open_browser = self._mk_button("Open in browser")
+        open_browser.clicked.connect(lambda: _open_in_browser(self._url))
 
-        clear_cache = self._mk_chip("⌫ Clear cache")
+        migrate = self._mk_button("Migrate", role="primary")
+        migrate.clicked.connect(
+            lambda: self._fill_runner_with(f"bench --site {site.name} migrate")
+        )
+
+        clear_cache = self._mk_button("Clear cache")
         clear_cache.clicked.connect(
             lambda: self._fill_runner_with(f"bench --site {site.name} clear-cache")
         )
 
-        clear_web = self._mk_chip("⌫ Clear website cache")
+        clear_web = self._mk_button("Clear website cache")
         clear_web.clicked.connect(
             lambda: self._fill_runner_with(f"bench --site {site.name} clear-website-cache")
         )
 
-        backup = self._mk_chip("⤓ Backup")
+        backup = self._mk_button("Backup")
         backup.clicked.connect(
             lambda: self._fill_runner_with(f"bench --site {site.name} backup")
         )
 
-        open_browser = self._mk_chip("↗ Open in browser")
-        open_browser.clicked.connect(lambda: _open_in_browser(self._url))
-
-        drop = self._mk_chip("⌫ Drop site", role="danger")
+        drop = self._mk_button("Drop site", role="danger")
         drop.clicked.connect(lambda: self.drop_requested.emit(self._bench_path, self._site.name))
 
-        chip_row.addWidget(migrate)
-        chip_row.addWidget(clear_cache)
-        chip_row.addWidget(clear_web)
-        chip_row.addWidget(backup)
-        chip_row.addWidget(open_browser)
-        chip_row.addStretch(1)
-        chip_row.addWidget(drop)
+        # Lay out 3 buttons per row, primary action first.
+        buttons = [migrate, open_browser, clear_cache, clear_web, backup, drop]
+        for index, button in enumerate(buttons):
+            row, col = divmod(index, 3)
+            action_grid.addWidget(button, row, col)
+        # Equal column stretch so each button gets the same width and
+        # the row reads as a button matrix, not a left-anchored list.
+        for col in range(3):
+            action_grid.setColumnStretch(col, 1)
 
         # ---- command runner (locked to this site) ------------------
         self._runner = BenchCommandRunner(locked_site=site.name)
@@ -147,18 +142,10 @@ class SiteTab(QWidget):
         # ---- assembly -----------------------------------------------
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
         layout.addLayout(info_row)
-        layout.addLayout(badges_row)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setFrameShadow(QFrame.Shadow.Sunken)
-        sep.setStyleSheet("color: #44475a;")
-        layout.addWidget(sep)
-
-        layout.addLayout(chip_row)
-        layout.addSpacing(6)
+        layout.addLayout(action_grid)
+        layout.addSpacing(4)
         layout.addWidget(runner_label)
         layout.addWidget(self._runner, 1)
 
@@ -178,25 +165,24 @@ class SiteTab(QWidget):
 
     # --- helpers ------------------------------------------------------
 
-    def _mk_chip(self, label: str, *, role: str | None = None) -> QPushButton:
+    def _mk_button(self, label: str, *, role: str | None = None) -> QPushButton:
         btn = QPushButton(label)
         if role is not None:
             btn.setProperty("role", role)
-        else:
-            btn.setProperty("role", "ghost")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Buttons in the grid stretch with the column; without a min
+        # height they look anemic next to the dropdown menus in the
+        # sticky header.
+        btn.setMinimumHeight(34)
         return btn
 
     def _fill_runner_with(self, command: str) -> None:
         """Drop ``command`` into the runner's input field and focus it.
 
-        We deliberately don't fire-and-forget: bench mutations are heavy
-        and ``Migrate`` on the wrong site is a real foot-gun. The user
-        confirms by pressing Enter.
+        Pre-fill rather than fire-and-forget: every option here is heavy
+        enough that an accidental double-click on the wrong site is
+        worth guarding against. The user confirms by pressing Enter.
         """
-        # The runner exposes ``_input`` only as a private attr; reaching in
-        # keeps the runner's public API minimal. If this becomes painful
-        # we can add ``BenchCommandRunner.set_pending_command``.
         self._runner._input.setText(command)  # noqa: SLF001
         self._runner._input.setFocus()  # noqa: SLF001
 
