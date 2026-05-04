@@ -20,6 +20,11 @@ def main() -> int:
     app.setStyleSheet(stylesheet(preferences.get_theme()))
 
     window = MainWindow()
+    # ``closeEvent`` covers the user clicking the X. ``aboutToQuit`` covers
+    # everything else — quit-from-dock, signal, taskmanager kill on macOS,
+    # OS-level logout. Both run ``stop_all`` so no `bench start` outlives
+    # the GUI.
+    app.aboutToQuit.connect(window.shutdown_processes)
     window.show()
     return app.exec()
 

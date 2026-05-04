@@ -16,6 +16,7 @@ import psutil
 
 DEFAULT_SERVICES: tuple[str, ...] = ("mariadb", "redis-server")
 SERVICE_QUERY_TIMEOUT_SEC: float = 3.0
+NODE_QUERY_TIMEOUT_SEC: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,49 @@ def get_service_status(name: str) -> ServiceStatus:
         return ServiceStatus(name=name, active=False, state="unknown")
     state = proc.stdout.strip() or "unknown"
     return ServiceStatus(name=name, active=(state == "active"), state=state)
+
+
+def get_node_version() -> str | None:
+    """Return the Node version Frappe will see, or ``None`` if no node is reachable.
+
+    Frappe calls ``node`` from PATH after sourcing nvm; we mirror that
+    lookup. Prefers the highest installed nvm-managed v18 (Frappe v15's
+    required major), then the highest-major nvm install, then whatever
+    apt-installed ``node`` is on PATH. Returns the bare version string
+    without the leading ``v`` (e.g. ``"18.20.4"``).
+    """
+    nvm_versions = Path.home() / ".nvm" / "versions" / "node"
+    if nvm_versions.is_dir():
+        v18 = sorted(nvm_versions.glob("v18.*"), reverse=True)
+        for candidate in v18 or sorted(nvm_versions.iterdir(), reverse=True):
+            node_bin = candidate / "bin" / "node"
+            if node_bin.is_file():
+                version = _query_node_version(str(node_bin))
+                if version is not None:
+                    return version
+
+    system_node = shutil.which("node")
+    if system_node is not None:
+        return _query_node_version(system_node)
+    return None
+
+
+def _query_node_version(node_bin: str) -> str | None:
+    """Run ``<node_bin> --version`` and strip the leading ``v``."""
+    try:
+        proc = subprocess.run(
+            [node_bin, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=NODE_QUERY_TIMEOUT_SEC,
+            check=False,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if proc.returncode != 0:
+        return None
+    raw = proc.stdout.strip()
+    return raw.lstrip("v") or None
 
 
 def snapshot(

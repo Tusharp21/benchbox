@@ -155,7 +155,21 @@ class MainWindow(QMainWindow):
 
     # --- shutdown ----------------------------------------------------
 
+    def shutdown_processes(self) -> None:
+        """Stop every tracked bench process — safe to call more than once.
+
+        Hooked into both ``closeEvent`` (window close) and
+        ``QApplication.aboutToQuit`` (everything else) so a stray
+        ``bench start`` never outlives the GUI, regardless of how the app
+        is exited.
+        """
+        self._process_manager.stop_all()
+        for view in (self._bench_detail,):
+            shutdown = getattr(view, "shutdown", None)
+            if callable(shutdown):
+                shutdown()
+
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override
         """Stop every running bench when the user closes the window."""
-        self._process_manager.stop_all()
+        self.shutdown_processes()
         super().closeEvent(event)

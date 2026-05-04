@@ -16,6 +16,10 @@ from benchbox_gui.widgets.stat_pill import StatPill
 
 _GB: int = 1024**3
 DEFAULT_POLL_MS: int = 2000
+# Node version is comparatively expensive (forks /usr/bin/node) and
+# rarely changes during a session — refresh every Nth tick rather than
+# every tick.
+_NODE_REFRESH_EVERY: int = 15
 
 # Service-pill accents; theme-agnostic on purpose — active-green works on
 # both backgrounds.
@@ -42,8 +46,11 @@ class StatsBanner(QWidget):
         self._cpu = StatPill("cpu")
         self._ram = StatPill("ram")
         self._disk = StatPill("disk")
+        self._node = StatPill("node")
         self._mariadb = StatPill("mariadb")
         self._redis = StatPill("redis")
+        self._node_tick: int = 0
+        self._node_version: str | None = None
 
         self._theme_btn = QPushButton()
         self._theme_btn.setObjectName("ThemeToggle")
@@ -57,7 +64,7 @@ class StatsBanner(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 10, 16, 10)
         layout.setSpacing(10)
-        for pill in (self._cpu, self._ram, self._disk, self._mariadb, self._redis):
+        for pill in (self._cpu, self._ram, self._disk, self._node, self._mariadb, self._redis):
             layout.addWidget(pill)
         layout.addStretch(1)
         layout.addWidget(self._theme_btn)
@@ -116,4 +123,21 @@ class StatsBanner(QWidget):
             self._redis.set_value(redis.state)
             self._redis.set_accent(_ACCENT_GREEN if redis.active else _ACCENT_RED)
 
+        self._refresh_node_pill()
+
         self.snapshot_ready.emit(snap)
+
+    def _refresh_node_pill(self) -> None:
+        # Re-probe Node periodically; in between, repaint the cached value
+        # so colour-changes from accent settings still apply.
+        if self._node_tick == 0:
+            self._node_version = stats.get_node_version()
+        self._node_tick = (self._node_tick + 1) % _NODE_REFRESH_EVERY
+        if self._node_version is None:
+            self._node.set_value("missing")
+            self._node.set_accent(_ACCENT_RED)
+        else:
+            self._node.set_value(self._node_version)
+            major = self._node_version.split(".", 1)[0]
+            ok = major.isdigit() and int(major) >= 18
+            self._node.set_accent(_ACCENT_GREEN if ok else _ACCENT_RED)

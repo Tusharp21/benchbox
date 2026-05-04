@@ -3,9 +3,10 @@
 Top of the view: bench metadata + an action row (Start / Stop / Open
 folder / + New site / + Get app / + New app / Restore).
 
-Below: a process-log panel, then two side-by-side card grids — Apps and
-Sites — using the same :class:`AppCard` / :class:`SiteCard` widgets as
-the read-only Apps / Sites tabs. Every per-card action (Install on
+Below: two terminal panes (the live ``bench start`` log on top, an
+interactive command runner below), then two stacked card grids — Apps
+and Sites — using the same :class:`AppCard` / :class:`SiteCard` widgets
+as the read-only Apps / Sites tabs. Every per-card action (Install on
 site, Uninstall, Remove, Drop) is wired through the bench-detail
 handlers here, so the global tabs can stay informational and this page
 becomes the single place to act on a bench.
@@ -41,6 +42,7 @@ from benchbox_gui.widgets.bench_actions import (
     open_in_file_manager,
 )
 from benchbox_gui.widgets.card_grid import CardGrid
+from benchbox_gui.widgets.command_runner import BenchCommandRunner
 from benchbox_gui.widgets.dialogs import (
     GetAppDialog,
     InstallAppDialog,
@@ -96,6 +98,8 @@ class BenchDetailView(QWidget):
         self._process.started.connect(lambda: self._actions.set_running(True))
         self._process.stopped.connect(lambda: self._actions.set_running(False))
 
+        self._command_runner = BenchCommandRunner()
+
         # Card grids for apps and sites — same widgets the read-only tabs
         # use, but mutating actions stay enabled here.
         self._apps_grid = CardGrid()
@@ -113,11 +117,17 @@ class BenchDetailView(QWidget):
         sites_layout.addWidget(self._sites_grid)
         sites_box.setMinimumHeight(220)
 
-        process_box = QGroupBox("Bench process")
+        process_box = QGroupBox("Bench process — bench start logs")
         process_layout = QVBoxLayout(process_box)
         process_layout.setContentsMargins(8, 8, 8, 8)
         process_layout.addWidget(self._process)
-        process_box.setMinimumHeight(360)
+        process_box.setMinimumHeight(280)
+
+        commands_box = QGroupBox("Run commands")
+        commands_layout = QVBoxLayout(commands_box)
+        commands_layout.setContentsMargins(8, 8, 8, 8)
+        commands_layout.addWidget(self._command_runner)
+        commands_box.setMinimumHeight(280)
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
@@ -128,6 +138,7 @@ class BenchDetailView(QWidget):
         content_layout.addWidget(self._meta)
         content_layout.addWidget(self._actions)
         content_layout.addWidget(process_box)
+        content_layout.addWidget(commands_box)
         content_layout.addWidget(apps_box)
         content_layout.addWidget(sites_box)
         content_layout.addStretch(1)
@@ -151,6 +162,7 @@ class BenchDetailView(QWidget):
         self._info = introspect.introspect(path)
         info = self._info
         self._process.set_bench(path, webserver_port=info.webserver_port)
+        self._command_runner.set_bench(path, [s.name for s in info.sites])
         self._title.setText(str(info.path))
         self._meta.setText(
             "<table cellpadding='2'>"
@@ -410,6 +422,17 @@ class BenchDetailView(QWidget):
     def _on_short_op_failure(self, exc: object) -> None:
         self._close_progress()
         QMessageBox.critical(self, "Operation failed", f"{exc}")
+
+    # --- shutdown hook -----------------------------------------------
+
+    def shutdown(self) -> None:
+        """Kill any in-flight runner command — invoked by MainWindow on quit.
+
+        ``BenchProcessManager`` handles its own ``bench start`` cleanup;
+        this only covers the dev-command pane which owns its own
+        :class:`QProcess` outside the manager.
+        """
+        self._command_runner.shutdown()
 
 
 # Re-export discovery for any caller that previously imported it from

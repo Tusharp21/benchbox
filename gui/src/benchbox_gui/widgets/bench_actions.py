@@ -18,6 +18,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -27,6 +28,32 @@ from PySide6.QtWidgets import (
 )
 
 from benchbox_gui.services.bench_processes import BenchProcessManager
+
+# status-dot palette — keyed by the strings the manager emits via
+# ``status_changed``. anything not listed falls back to a neutral grey.
+_STATUS_COLOURS: dict[str, str] = {
+    "running": "#1a7f37",
+    "starting": "#d29922",
+    "stopping…": "#d29922",
+    "stopped": "#6e7781",
+}
+
+
+class _StatusDot(QFrame):
+    """Tiny coloured circle that visualises a bench process's state."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(12, 12)
+        self.set_status("stopped")
+
+    def set_status(self, status: str) -> None:
+        colour = _STATUS_COLOURS.get(status, "#6e7781")
+        # Inline stylesheet so the dot ignores theme rules — it's the same
+        # colour in dark and light, on purpose.
+        self.setStyleSheet(
+            f"background-color: {colour}; border-radius: 6px; border: none;"
+        )
 
 
 class BenchActionRow(QWidget):
@@ -116,6 +143,7 @@ class BenchProcessPanel(QWidget):
         self._bench_path: Path | None = None
         self._url: str = ""
 
+        self._dot = _StatusDot()
         self._status = QLabel("stopped")
         self._status.setProperty("role", "dim")
 
@@ -136,7 +164,8 @@ class BenchProcessPanel(QWidget):
 
         status_row = QHBoxLayout()
         status_row.setContentsMargins(0, 0, 0, 0)
-        status_row.setSpacing(10)
+        status_row.setSpacing(8)
+        status_row.addWidget(self._dot)
         status_row.addWidget(self._status)
         status_row.addStretch(1)
         status_row.addWidget(self._url_link)
@@ -172,7 +201,9 @@ class BenchProcessPanel(QWidget):
         existing = self._manager.log_of(self._bench_path)
         if existing:
             self._log.appendPlainText(existing)
-        self._status.setText(self._manager.status_of(self._bench_path))
+        current_status = self._manager.status_of(self._bench_path)
+        self._status.setText(current_status)
+        self._dot.set_status(current_status)
 
         running = self._manager.is_running(self._bench_path)
         self._url_link.setVisible(running)
@@ -211,6 +242,7 @@ class BenchProcessPanel(QWidget):
         if not self._matches_current(path):
             return
         self._status.setText(status)
+        self._dot.set_status(status)
 
     def _on_process_started(self, path: Path) -> None:
         if not self._matches_current(path):
@@ -224,6 +256,8 @@ class BenchProcessPanel(QWidget):
         if not self._matches_current(path):
             return
         self._url_link.setVisible(False)
+        self._dot.set_status("stopped")
+        self._status.setText("stopped")
         self.stopped.emit()
 
 
