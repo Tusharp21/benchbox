@@ -262,6 +262,41 @@ class BenchCommandRunner(QWidget):
     def is_busy(self) -> bool:
         return self._process is not None
 
+    def prefill(self, command: str) -> None:
+        """Drop ``command`` into the input field and focus it.
+
+        Used by the per-site action grid: each click here pre-fills a
+        ``bench --site …`` invocation rather than firing it, so the
+        user can review/edit before pressing Enter.
+        """
+        self._input.setText(command)
+        self._input.setFocus()
+
+    def run_command(self, real_command: str, *, display: str | None = None) -> bool:
+        """Run ``real_command`` immediately, optionally echoing ``display`` instead.
+
+        Returns ``False`` if the runner is busy or has no bench bound;
+        ``True`` if the command was spawned. Display masking is the
+        hook for commands that carry secrets (the saved MariaDB root
+        password lands in ``bench drop-site --root-password``); the
+        log shows the masked form, but the real command runs verbatim.
+        """
+        if self._bench_path is None or self._process is not None:
+            return False
+        echoed = display if display is not None else real_command
+        process = self._process_cls(self)
+        process.setWorkingDirectory(str(self._bench_path))
+        process.setProcessChannelMode(self._process_cls.ProcessChannelMode.MergedChannels)
+        process.readyReadStandardOutput.connect(self._drain_output)
+        process.finished.connect(self._on_finished)
+        process.errorOccurred.connect(self._on_error)
+        self._process = process
+        self._set_busy_ui(True)
+        self._append(f"$ {echoed}\n")
+        self.command_started.emit(echoed)
+        process.start("bash", ["-c", _NVM_BOOTSTRAP_PREFIX + real_command])
+        return True
+
     # --- chip / input plumbing ---------------------------------------
 
     def _selected_site(self) -> str:

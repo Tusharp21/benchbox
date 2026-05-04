@@ -1,27 +1,29 @@
 """One tab in the bench detail view, scoped to a single site.
 
-The tab is laid out as a settings-style page with explicit section
-headers so the user can scan it like a checklist instead of a wall of
-buttons:
+Three sections, top → bottom:
 
 1. **Site info** — small dim line with ``db`` + ``apps installed``.
 2. **Maintenance** — Migrate, Clear cache, Clear website cache, Backup.
-3. **Browse** — Open in browser.
-4. **Danger zone** — Drop site (visually distinct via the ``danger``
-   button role).
-5. **Run any command** — embedded :class:`BenchCommandRunner` (with
-   default chips suppressed: the buttons above already cover those
-   actions, so chips would just duplicate them).
+   Each click pre-fills the embedded :class:`BenchCommandRunner` with a
+   ``bench --site …`` command; the user reviews and presses Enter.
+3. **Run any command** — embedded :class:`BenchCommandRunner` (default
+   chips suppressed: the buttons above already cover those actions, so
+   chips would just duplicate them).
 
-Every clickable action is a :class:`QPushButton` — no clickable links
-or status pills masquerading as actions. Clicks pre-fill the runner
-with the relevant ``bench --site …`` invocation; the user reviews and
-presses Enter. We never fire-and-forget bench mutations because heavy
-operations on the wrong site are real foot-guns.
+The "Run any command" section also hosts two extra buttons that act
+on the live site rather than pre-fill the runner:
+
+- **Open in browser** — only visible when the bench process is
+  running, since the URL only resolves while ``bench start`` has the
+  webserver up.
+- **Delete site** — opens a typed-name confirmation popup, then runs
+  ``bench drop-site …`` through the runner so the output streams to
+  the same terminal log as everything else.
 """
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 from benchbox_core import introspect
@@ -40,7 +42,6 @@ from PySide6.QtWidgets import (
 
 from benchbox_gui.widgets.command_runner import BenchCommandRunner
 
-# Shared spacing so every section header looks identical.
 _SECTION_SPACING_TOP: int = 4
 _SECTION_SPACING_BELOW: int = 2
 
@@ -51,13 +52,7 @@ def _open_in_browser(url: str) -> None:
 
 
 def _section_header(title: str) -> QWidget:
-    """Render an all-caps section title with a thin separator below it.
-
-    Returned as a single widget so a layout can ``addWidget`` it without
-    having to add and pad two children. The hairline separator below
-    keeps each section feeling like a discrete block without resorting
-    to QGroupBox borders.
-    """
+    """Render an all-caps section title with a thin separator below it."""
     container = QWidget()
     layout = QVBoxLayout(container)
     layout.setContentsMargins(0, _SECTION_SPACING_TOP, 0, _SECTION_SPACING_BELOW)
@@ -65,8 +60,6 @@ def _section_header(title: str) -> QWidget:
 
     label = QLabel(title.upper())
     label.setProperty("role", "dim")
-    # Slightly tighter letter-spacing + bold so it reads as a
-    # section heading rather than just dim text.
     label.setStyleSheet("font-weight: 700; letter-spacing: 1.4px; font-size: 10pt;")
 
     line = QFrame()
@@ -83,10 +76,14 @@ class SiteTab(QWidget):
     """Per-site working area embedded inside the bench detail's QTabWidget.
 
     Signals:
-        drop_requested(Path, str): user clicked Drop site (bench_path, site_name).
+        delete_site_requested(Path, str): user clicked Delete site;
+            parent should run a typed confirm + drive the actual drop.
+            The parent calls back into :meth:`run_drop_site` with the
+            real command and a masked display string so the password
+            doesn't end up in the runner's log.
     """
 
-    drop_requested = Signal(Path, str)
+    delete_site_requested = Signal(Path, str)
 
     def __init__(
         self,
@@ -94,12 +91,20 @@ class SiteTab(QWidget):
         site: introspect.SiteInfo,
         *,
         webserver_port: int = 8000,
+        bench_running: bool = False,
+        bench_apps: list[str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._bench_path = bench_path
         self._site = site
         self._url = f"http://{site.name}:{webserver_port}"
+        # Bench-wide apps list, used as a fallback when introspect's
+        # filesystem reads couldn't determine which apps are installed
+        # on *this* site (modern Frappe stores that in the DB rather
+        # than apps.txt). At least we can show what's *available* in
+        # the bench so the user isn't staring at "(none)".
+        self._bench_apps: list[str] = list(bench_apps or [])
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -115,18 +120,9 @@ class SiteTab(QWidget):
         layout.addLayout(self._build_maintenance_grid())
         layout.addSpacing(6)
 
-        # 3. ---- browse --------------------------------------------
-        layout.addWidget(_section_header("Browse"))
-        layout.addLayout(self._build_browse_row())
-        layout.addSpacing(6)
-
-        # 4. ---- danger zone --------------------------------------
-        layout.addWidget(_section_header("Danger zone"))
-        layout.addLayout(self._build_danger_row())
-        layout.addSpacing(10)
-
-        # 5. ---- run any command ----------------------------------
+        # 3. ---- run any command ----------------------------------
         layout.addWidget(_section_header("Run any command"))
+        layout.addLayout(self._build_runner_actions_row())
         # show_chips=False so the embedded runner doesn't repeat the
         # Migrate / Clear cache buttons rendered in the Maintenance
         # section above.
@@ -134,6 +130,10 @@ class SiteTab(QWidget):
         self._runner.set_bench(bench_path, [site.name])
         self._runner.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self._runner, 1)
+
+        # Reflect the initial bench-running state — toggles Open in
+        # browser visibility immediately so the first paint is correct.
+        self.set_bench_running(bench_running)
 
     # --- public API ---------------------------------------------------
 
@@ -145,9 +145,44 @@ class SiteTab(QWidget):
     def bench_path(self) -> Path:
         return self._bench_path
 
+    @property
+    def runner(self) -> BenchCommandRunner:
+        """The embedded runner — exposed so the parent can dispatch
+        commands (e.g. drop-site after a typed confirm) into the same
+        terminal the user is already looking at."""
+        return self._runner
+
+    def set_bench_running(self, running: bool) -> None:
+        """Show/hide the Open in browser button based on bench state.
+
+        The site URL only resolves while ``bench start`` has the
+        webserver up, so showing the button when the bench is stopped
+        would lead to a broken-link click.
+        """
+        self._open_browser_btn.setVisible(running)
+
     def shutdown(self) -> None:
         """Kill any in-flight command — called on app shutdown / tab destroy."""
         self._runner.shutdown()
+
+    def run_drop_site(self, *, root_password: str) -> bool:
+        """Spawn ``bench drop-site`` through the runner with the password masked.
+
+        Returns ``False`` if the runner is busy. The displayed command
+        masks the password; the actual subprocess receives the real
+        value via ``--root-password``. Output streams into the runner's
+        log like any other command.
+        """
+        site = self._site.name
+        # shlex.quote so a password with shell-special chars stays one
+        # argv token. The display string sticks to a fixed mask; we
+        # never echo the real value to the log.
+        real_cmd = (
+            f"bench drop-site {shlex.quote(site)} "
+            f"--root-password {shlex.quote(root_password)} --no-backup"
+        )
+        display_cmd = f"bench drop-site {site} --root-password ******** --no-backup"
+        return self._runner.run_command(real_cmd, display=display_cmd)
 
     # --- section builders -------------------------------------------
 
@@ -160,14 +195,34 @@ class SiteTab(QWidget):
         db_label.setProperty("role", "dim")
         row.addWidget(db_label)
 
-        apps_text = (
-            ", ".join(self._site.installed_apps) if self._site.installed_apps else "(none)"
-        )
-        apps_label = QLabel(f"<b>apps</b> {apps_text}")
+        apps_label = QLabel(self._format_apps_text())
         apps_label.setProperty("role", "dim")
         apps_label.setWordWrap(True)
         row.addWidget(apps_label, 1)
         return row
+
+    def _format_apps_text(self) -> str:
+        """Compose the ``apps …`` line.
+
+        Order of preference:
+        1. ``site.installed_apps`` from introspect — most accurate when
+           ``apps.txt`` / ``site_config`` actually carries it.
+        2. Bench-wide app list with a ``(from bench)`` hint — modern
+           Frappe keeps the per-site list in the DB only, so this is
+           the next-best signal we can read without spawning ``bench
+           --site … list-apps``.
+        3. ``(none)`` when even the bench has no apps registered.
+        """
+        if self._site.installed_apps:
+            return "<b>apps</b> " + ", ".join(self._site.installed_apps)
+        if self._bench_apps:
+            joined = ", ".join(self._bench_apps)
+            return (
+                f"<b>apps</b> {joined} "
+                f'<span style="opacity:0.65;">(from bench — run '
+                f"<code>bench --site {self._site.name} list-apps</code> to verify)</span>"
+            )
+        return "<b>apps</b> (none)"
 
     def _build_maintenance_grid(self) -> QGridLayout:
         grid = QGridLayout()
@@ -177,28 +232,26 @@ class SiteTab(QWidget):
 
         migrate = self._mk_button("Migrate", role="primary")
         migrate.clicked.connect(
-            lambda: self._fill_runner_with(f"bench --site {self._site.name} migrate")
+            lambda: self._runner.prefill(f"bench --site {self._site.name} migrate")
         )
 
         clear_cache = self._mk_button("Clear cache")
         clear_cache.clicked.connect(
-            lambda: self._fill_runner_with(f"bench --site {self._site.name} clear-cache")
+            lambda: self._runner.prefill(f"bench --site {self._site.name} clear-cache")
         )
 
         clear_web = self._mk_button("Clear website cache")
         clear_web.clicked.connect(
-            lambda: self._fill_runner_with(
+            lambda: self._runner.prefill(
                 f"bench --site {self._site.name} clear-website-cache"
             )
         )
 
         backup = self._mk_button("Backup")
         backup.clicked.connect(
-            lambda: self._fill_runner_with(f"bench --site {self._site.name} backup")
+            lambda: self._runner.prefill(f"bench --site {self._site.name} backup")
         )
 
-        # 3 buttons per row; equal column stretch so the matrix
-        # aligns regardless of label length.
         buttons = [migrate, clear_cache, clear_web, backup]
         for index, button in enumerate(buttons):
             row, col = divmod(index, 3)
@@ -207,39 +260,30 @@ class SiteTab(QWidget):
             grid.setColumnStretch(col, 1)
         return grid
 
-    def _build_browse_row(self) -> QHBoxLayout:
+    def _build_runner_actions_row(self) -> QHBoxLayout:
+        """Small button row that sits above the runner's input field.
+
+        Holds the actions that don't fit the "pre-fill the input" pattern:
+        Open in browser launches an external app, Delete site needs a
+        typed confirmation gate before it ever touches the runner.
+        """
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
 
-        open_browser = self._mk_button("Open in browser")
-        open_browser.clicked.connect(lambda: _open_in_browser(self._url))
-        row.addWidget(open_browser)
+        self._open_browser_btn = self._mk_button("Open in browser")
+        self._open_browser_btn.clicked.connect(lambda: _open_in_browser(self._url))
+        # Hidden by default; ``set_bench_running(True)`` flips it on.
+        self._open_browser_btn.setVisible(False)
+        row.addWidget(self._open_browser_btn)
 
-        url_hint = QLabel(self._url)
-        url_hint.setProperty("role", "dim")
-        url_hint.setWordWrap(True)
-        url_hint.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        row.addWidget(url_hint, 1)
-        return row
-
-    def _build_danger_row(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(8)
-
-        drop = self._mk_button("Drop site", role="danger")
-        drop.clicked.connect(lambda: self.drop_requested.emit(self._bench_path, self._site.name))
-        row.addWidget(drop)
-
-        # Tooltip on the explanation rather than the button — the
-        # button's danger styling is already loud enough.
-        warning = QLabel(
-            "Permanently deletes the site directory and its MariaDB database."
+        delete_btn = self._mk_button("Delete site", role="danger")
+        delete_btn.clicked.connect(
+            lambda: self.delete_site_requested.emit(self._bench_path, self._site.name)
         )
-        warning.setProperty("role", "dim")
-        warning.setWordWrap(True)
-        row.addWidget(warning, 1)
+        row.addWidget(delete_btn)
+
+        row.addStretch(1)
         return row
 
     # --- helpers ------------------------------------------------------
@@ -251,16 +295,6 @@ class SiteTab(QWidget):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setMinimumHeight(34)
         return btn
-
-    def _fill_runner_with(self, command: str) -> None:
-        """Drop ``command`` into the runner's input field and focus it.
-
-        Pre-fill rather than fire-and-forget; every option here is
-        heavy enough that an accidental double-click on the wrong site
-        is worth guarding against. The user confirms by pressing Enter.
-        """
-        self._runner._input.setText(command)  # noqa: SLF001
-        self._runner._input.setFocus()  # noqa: SLF001
 
 
 __all__ = ["SiteTab"]

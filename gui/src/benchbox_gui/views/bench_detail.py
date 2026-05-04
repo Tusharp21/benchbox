@@ -28,7 +28,6 @@ from pathlib import Path
 
 from benchbox_core import app as core_app
 from benchbox_core import credentials, discovery, introspect
-from benchbox_core import site as core_site
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -146,6 +145,12 @@ class BenchDetailView(QWidget):
         self._dock.start_requested.connect(self._on_start)
         self._dock.stop_requested.connect(self._on_stop)
 
+        # Track bench-running state so site tabs can show/hide their
+        # Open in browser button. Subscribing here (rather than in each
+        # SiteTab) keeps the manager → tab fan-out single-sourced.
+        process_manager.process_started.connect(self._on_bench_started)
+        process_manager.process_stopped.connect(self._on_bench_stopped)
+
         # ---- assembly ----------------------------------------------
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -221,9 +226,17 @@ class BenchDetailView(QWidget):
         # scroll area so chip rows + a long command-runner buffer never
         # force horizontal scroll.
         free_index = self._tabs.count() - 1
+        bench_running = self._process_manager.is_running(path)
+        bench_app_names = [a.name for a in info.apps]
         for offset, site in enumerate(info.sites):
-            tab = SiteTab(path, site, webserver_port=info.webserver_port)
-            tab.drop_requested.connect(self._on_drop_site)
+            tab = SiteTab(
+                path,
+                site,
+                webserver_port=info.webserver_port,
+                bench_running=bench_running,
+                bench_apps=bench_app_names,
+            )
+            tab.delete_site_requested.connect(self._on_delete_site)
             insert_at = 1 + offset
             self._tabs.insertTab(insert_at, _v_scroll(tab), site.name)
             self._tabs.setTabToolTip(insert_at, f"Working context: {site.name}")
@@ -250,6 +263,18 @@ class BenchDetailView(QWidget):
     def _on_open_folder(self) -> None:
         if self._current_path is not None:
             open_in_file_manager(self._current_path)
+
+    def _on_bench_started(self, path: Path) -> None:
+        if self._current_path is None or path.resolve() != self._current_path.resolve():
+            return
+        for tab in self._site_tabs.values():
+            tab.set_bench_running(True)
+
+    def _on_bench_stopped(self, path: Path, _exit_code: int) -> None:
+        if self._current_path is None or path.resolve() != self._current_path.resolve():
+            return
+        for tab in self._site_tabs.values():
+            tab.set_bench_running(False)
 
     # --- bench-level chores from the header dropdown -----------------
 
@@ -450,16 +475,24 @@ class BenchDetailView(QWidget):
             success_msg=f"Removed {app_name} from bench.",
         )
 
-    def _on_drop_site(self, bench_path: Path, site_name: str) -> None:
+    def _on_delete_site(self, bench_path: Path, site_name: str) -> None:
+        """Typed-confirm popup → run ``bench drop-site`` through the runner.
+
+        We deliberately route through the site tab's command runner
+        rather than the spinner/operation-worker path so the user sees
+        the destructive command in the same terminal log as everything
+        else. The display string masks the password; the real argv
+        receives the saved value.
+        """
         confirm = TypedNameConfirmDialog(
             site_name,
-            title="Drop site",
+            title="Delete site",
             message=(
                 f"This permanently deletes <b>{site_name}</b> on "
                 f"<code>{bench_path}</code>, including its MariaDB database. "
                 "This can't be undone."
             ),
-            action_label="Drop site",
+            action_label="Delete site",
             parent=self,
         )
         if confirm.exec() != confirm.DialogCode.Accepted:
@@ -467,11 +500,42 @@ class BenchDetailView(QWidget):
         db_root = self._ensure_mariadb_password()
         if db_root is None:
             return
-        self._open_progress(f"Dropping {site_name}…")
-        self._spawn(
-            lambda: core_site.drop_site(bench_path, site_name, db_root_password=db_root),
-            success_msg=f"Site {site_name!r} dropped.",
-        )
+        site_tab = self._site_tabs.get(site_name)
+        if site_tab is None:
+            return
+        # Connect once, only for this drop, so the refresh fires after
+        # the process exits. Lambdas + a one-shot disconnect keep the
+        # site_tab from accumulating connections across attempts.
+        runner = site_tab.runner
+
+        def _on_finished(code: int) -> None:
+            try:
+                runner.command_finished.disconnect(_on_finished)
+            except (RuntimeError, TypeError):
+                pass
+            if code == 0:
+                self._refresh_after_op()
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Delete failed",
+                    f"<code>bench drop-site</code> exited with code {code}. "
+                    "See the site tab's log for details.",
+                )
+
+        runner.command_finished.connect(_on_finished)
+        ok = site_tab.run_drop_site(root_password=db_root)
+        if not ok:
+            try:
+                runner.command_finished.disconnect(_on_finished)
+            except (RuntimeError, TypeError):
+                pass
+            QMessageBox.warning(
+                self,
+                "Runner busy",
+                "The site's command runner is already running something. "
+                "Wait for it to finish or cancel it first.",
+            )
 
     # --- spinner plumbing for fast mutations -------------------------
 

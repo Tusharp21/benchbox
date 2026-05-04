@@ -199,15 +199,7 @@ def read_sites(bench_path: Path) -> list[SiteInfo]:
         db_name_raw = config.get("db_name")
         db_name = db_name_raw if isinstance(db_name_raw, str) else None
 
-        installed_apps: list[str] = []
-        apps_txt = entry / "apps.txt"
-        if apps_txt.is_file():
-            try:
-                installed_apps = [
-                    line.strip() for line in apps_txt.read_text().splitlines() if line.strip()
-                ]
-            except OSError:
-                installed_apps = []
+        installed_apps = _read_installed_apps(entry, config)
 
         result.append(
             SiteInfo(
@@ -218,6 +210,37 @@ def read_sites(bench_path: Path) -> list[SiteInfo]:
             )
         )
     return result
+
+
+def _read_installed_apps(site_dir: Path, site_config: dict[str, object]) -> list[str]:
+    """Best-effort list of apps installed on a site, in fallback order.
+
+    1. ``<site>/apps.txt`` — written by older Frappe and some forks.
+    2. ``installed_apps`` key in ``site_config.json`` — some Frappe builds
+       cache it here so the GUI/CLI doesn't need to open the DB.
+
+    The DB itself is the actual source of truth on modern Frappe (the
+    ``installed_apps`` global), but reading it requires running
+    ``bench --site … list-apps`` which is a heavy subprocess we don't
+    want to spawn on every introspect. Returns an empty list when both
+    file-based hints are missing — the SiteTab UI then falls back to
+    the bench-wide apps list to give the user *something* to see.
+    """
+    apps_txt = site_dir / "apps.txt"
+    if apps_txt.is_file():
+        try:
+            from_txt = [
+                line.strip() for line in apps_txt.read_text().splitlines() if line.strip()
+            ]
+        except OSError:
+            from_txt = []
+        if from_txt:
+            return from_txt
+
+    cfg_apps = site_config.get("installed_apps")
+    if isinstance(cfg_apps, list):
+        return [str(a) for a in cfg_apps if isinstance(a, str) and a.strip()]
+    return []
 
 
 def introspect(bench_path: Path) -> BenchInfo:
