@@ -1,13 +1,4 @@
-"""Local credential store.
-
-benchbox saves the MariaDB root password (and, later, any other local
-secrets it needs) at ``~/.benchbox/credentials.json`` with ``0600``
-permissions. This is deliberately plaintext — matches how Frappe's own
-``site_config.json`` stores DB credentials for local dev, and the alternatives
-(system keyring, GPG) add moving parts that break on headless Ubuntu.
-
-The CLI / GUI own all user prompting. Core just stores and retrieves.
-"""
+"""Local credential store at ~/.benchbox/credentials.json (0600)."""
 
 from __future__ import annotations
 
@@ -24,7 +15,6 @@ MARIADB_ROOT_PASSWORD_KEY: str = "mariadb_root_password"
 
 
 def config_dir() -> Path:
-    """Return the active config dir; honours ``$BENCHBOX_CONFIG_DIR``."""
     override = os.environ.get(ENV_CONFIG_DIR)
     return Path(override) if override else DEFAULT_CONFIG_DIR
 
@@ -53,8 +43,6 @@ def _save(data: dict[str, str]) -> None:
     tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
     os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
     os.replace(tmp, path)
-    # replace preserves tmp's mode but be explicit — some filesystems carry
-    # over the target's old mode instead.
     os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
 
 
@@ -63,7 +51,6 @@ def get(key: str) -> str | None:
 
 
 def set_(key: str, value: str) -> None:
-    """Store ``value`` under ``key``. Trailing underscore avoids shadowing ``set``."""
     data = _load()
     data[key] = value
     _save(data)

@@ -1,13 +1,4 @@
-"""Settings tab — credentials, paths, about.
-
-Three cards, consistent spacing:
-  - Credentials: status chip + selectable path + change-password + reset
-  - Paths: credentials file, logs dir, venv install — each with Open folder
-  - About: version info for all three packages + repo link
-
-No long-running state; everything here is pure filesystem + credentials
-store access, so no worker threads needed.
-"""
+"""Settings tab — credentials, paths, about."""
 
 from __future__ import annotations
 
@@ -39,7 +30,6 @@ _RED = "#ff5555"
 
 
 def _chip(text: str, color: str) -> QLabel:
-    """A small coloured status pill. Pure-label, no interaction."""
     label = QLabel(text)
     label.setStyleSheet(
         f"background-color: {color}; color: #282a36; "
@@ -50,10 +40,6 @@ def _chip(text: str, color: str) -> QLabel:
 
 
 def _path_row(label: str, path: Path, *, exists: bool | None = None) -> QWidget:
-    """A row: label + selectable path + Open folder button.
-
-    ``exists`` is shown as a trailing dim hint when supplied.
-    """
     row_widget = QWidget()
     row = QHBoxLayout(row_widget)
     row.setContentsMargins(0, 0, 0, 0)
@@ -74,8 +60,7 @@ def _path_row(label: str, path: Path, *, exists: bool | None = None) -> QWidget:
     open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def _open_it() -> None:
-        # Directory targets open in file manager; files open their containing
-        # dir because xdg-open on a .json just launches a text editor.
+        # Files open their containing dir; xdg-open on a .json launches an editor.
         target = path if path.is_dir() else path.parent
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
 
@@ -88,17 +73,10 @@ def _path_row(label: str, path: Path, *, exists: bool | None = None) -> QWidget:
 
 
 def _venv_prefix() -> Path:
-    """The venv benchbox is running out of, via ``sys.prefix``.
-
-    Always points at ``~/.local/share/benchbox/venv`` for a
-    user-installed app via install.sh.
-    """
     return Path(sys.prefix)
 
 
 class SettingsView(QWidget):
-    """Credentials + paths + about, in three cards."""
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 

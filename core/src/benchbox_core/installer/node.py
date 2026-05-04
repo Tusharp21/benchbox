@@ -1,14 +1,4 @@
-"""Node.js component — per-user Node via nvm, matching Frappe's official flow.
-
-Frappe's docs bootstrap Node through nvm (user-scoped, no sudo) rather than
-through NodeSource's apt repo, because different Frappe versions pin
-different Node majors and nvm lets developers flip between them freely.
-benchbox follows the same path.
-
-All steps run as the invoking user — the component never uses sudo. nvm's
-installer writes to the user's shell rc files (``~/.bashrc`` / ``~/.profile``)
-as a documented side effect; we don't try to suppress that.
-"""
+"""Node component — per-user nvm + Node 18."""
 
 from __future__ import annotations
 
@@ -35,7 +25,6 @@ DEFAULT_NODE_MAJOR: str = "18"
 
 @dataclass
 class NodeComponent:
-    """Install nvm, Node.js, and (optionally) yarn for the invoking user."""
 
     name: str = field(default="node", init=False)
     node_major: str = DEFAULT_NODE_MAJOR
@@ -64,7 +53,6 @@ class NodeComponent:
     # --- plan ----------------------------------------------------------
 
     def _nvm_source_snippet(self) -> str:
-        """Shell snippet that makes the ``nvm`` function available."""
         return f'export NVM_DIR={shlex.quote(str(self.nvm_dir))} && . "$NVM_DIR/nvm.sh"'
 
     def _bash_login_command(self, script: str) -> tuple[str, ...]:

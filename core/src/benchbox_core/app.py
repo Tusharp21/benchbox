@@ -1,19 +1,4 @@
-"""App lifecycle operations — get, new, install, uninstall.
-
-Thin wrappers around four ``bench`` subcommands:
-- ``bench get-app <git-url>`` — clones and pip-installs an app into the
-  bench's virtualenv; does NOT install it onto any site.
-- ``bench new-app <name>`` — scaffolds a fresh Frappe app under
-  ``apps/<name>/``. Interactive — we feed canned answers via stdin.
-- ``bench --site <name> install-app <app> [<app>...]`` — installs one or
-  more already-downloaded apps onto a specific site. ``--site`` is a
-  *global* bench flag (before the subcommand), not a flag on install-app.
-- ``bench --site <name> uninstall-app <app>`` — removes an app from a
-  site. Single-app only; callers needing to drop several should loop.
-
-All four subcommands resolve their bench_path from ``os.getcwd()``, so we
-always pass ``cwd=bench_path`` on the runner.
-"""
+"""App lifecycle (get, new, install, uninstall, remove)."""
 
 from __future__ import annotations
 
@@ -26,8 +11,6 @@ from benchbox_core.introspect import AppInfo, read_apps
 
 
 class AppOperationError(RuntimeError):
-    """Raised when a wrapped ``bench`` app command exits non-zero."""
-
     def __init__(self, operation: str, result: CommandResult) -> None:
         super().__init__(
             f"`bench {operation}` failed (exit {result.returncode}): "
@@ -39,18 +22,12 @@ class AppOperationError(RuntimeError):
 
 @dataclass(frozen=True)
 class GetAppResult:
-    """Outcome of ``get_app``. ``app`` is None on dry-run or when the app
-    can't be located in ``apps/`` after success (unusual — usually means
-    the git URL gave an app whose folder name differs from its click name)."""
-
     command: CommandResult
-    apps: tuple[AppInfo, ...]  # full apps list after the get
+    apps: tuple[AppInfo, ...]
 
 
 @dataclass(frozen=True)
 class NewAppResult:
-    """Outcome of ``new_app``."""
-
     command: CommandResult
     apps: tuple[AppInfo, ...]
 
@@ -81,15 +58,6 @@ def get_app(
     runner: CommandRunner | None = None,
     line_callback: Callable[[str], None] | None = None,
 ) -> GetAppResult:
-    """Run ``bench get-app`` inside ``bench_path``.
-
-    Downloads the app and pip-installs it into the bench's venv. Use
-    ``install_app`` afterwards to install the app on a specific site.
-
-    Pass ``line_callback`` to stream the underlying git-clone + pip-install
-    output line-by-line into a UI (e.g. the GUI's get-app dialog log
-    panel).
-    """
     argv: list[str] = ["bench", "get-app", git_url]
     if branch is not None:
         argv.extend(["--branch", branch])
@@ -112,10 +80,7 @@ def get_app(
     return GetAppResult(command=result, apps=tuple(read_apps(bench_path)))
 
 
-# Default answers fed to ``bench new-app``'s interactive prompts. Order
-# matches the prompts: title, description, publisher, email, license.
-# bench will print each prompt; we feed a newline-terminated answer for
-# each so the subprocess never blocks waiting on a TTY.
+# bench new-app prompts for: title, description, publisher, email, license.
 _NEW_APP_LICENSE_DEFAULT: str = "MIT"
 
 
@@ -131,16 +96,6 @@ def new_app(
     runner: CommandRunner | None = None,
     line_callback: Callable[[str], None] | None = None,
 ) -> NewAppResult:
-    """Scaffold a fresh Frappe app at ``apps/<app_name>/`` via ``bench new-app``.
-
-    bench's ``new-app`` is interactive: it prompts (in order) for app
-    title, description, publisher, email, license. We feed canned answers
-    via stdin so the subprocess never blocks. ``title`` defaults to the
-    snake_case ``app_name`` rendered as Title Case.
-
-    Pass ``line_callback`` to stream output into a UI; pass an explicit
-    ``runner`` for tests / dry-runs.
-    """
     if not app_name or not app_name.isidentifier() or not app_name.islower():
         raise ValueError(
             f"invalid app name {app_name!r}: must be lowercase, "
@@ -182,12 +137,6 @@ def install_app(
     runner: CommandRunner | None = None,
     line_callback: Callable[[str], None] | None = None,
 ) -> InstallAppResult:
-    """Install one or more apps onto ``site_name`` via ``bench install-app``.
-
-    ``--site`` is a *global* bench option (before the subcommand), so the
-    argv is ``bench --site <name> install-app <app> [<app>...]`` — not a
-    flag on install-app itself.
-    """
     if not apps:
         raise ValueError("install_app requires at least one app name")
 
@@ -214,12 +163,6 @@ def uninstall_app(
     force: bool = False,
     runner: CommandRunner | None = None,
 ) -> UninstallAppResult:
-    """Remove ``app`` from ``site_name`` via ``bench uninstall-app``.
-
-    ``yes`` defaults to True because the interactive prompt would hang a
-    non-TTY subprocess. Set ``no_backup=True`` to skip the default pre-drop
-    backup when you know you don't need it.
-    """
     argv: list[str] = ["bench", "--site", site_name, "uninstall-app", app]
     if yes:
         argv.append("--yes")
@@ -245,14 +188,6 @@ def remove_app(
     force: bool = False,
     runner: CommandRunner | None = None,
 ) -> RemoveAppResult:
-    """Remove ``app`` from a bench's ``apps/`` directory via ``bench remove-app``.
-
-    Distinct from :func:`uninstall_app` — that only detaches an app from a
-    specific site's DB. ``remove_app`` yanks the whole app out of the bench
-    so ``bench get-app`` is what gets it back. ``bench remove-app`` will
-    refuse to run while any site still has the app installed unless
-    ``force=True``.
-    """
     argv: list[str] = ["bench", "remove-app", app]
     if no_backup:
         argv.append("--no-backup")

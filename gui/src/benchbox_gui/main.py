@@ -1,4 +1,4 @@
-"""benchbox-gui entrypoint."""
+"""GUI entrypoint."""
 
 from __future__ import annotations
 
@@ -16,14 +16,11 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("benchbox")
     app.setOrganizationName("benchbox")
-    # Load saved theme (defaults to dark on first run).
     app.setStyleSheet(stylesheet(preferences.get_theme()))
 
     window = MainWindow()
-    # ``closeEvent`` covers the user clicking the X. ``aboutToQuit`` covers
-    # everything else — quit-from-dock, signal, taskmanager kill on macOS,
-    # OS-level logout. Both run ``stop_all`` so no `bench start` outlives
-    # the GUI.
+    # closeEvent covers the X button; aboutToQuit covers signals, dock-quit,
+    # session logout. Either way, stop running benches before exit.
     app.aboutToQuit.connect(window.shutdown_processes)
     window.show()
     return app.exec()

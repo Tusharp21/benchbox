@@ -1,21 +1,6 @@
-"""App-level registry of running ``bench start`` processes.
+"""App-level registry of running bench-start processes.
 
-The older design had ``BenchProcessPanel`` own its own :class:`QProcess`,
-which meant:
-
-- switching to a different bench → the previous bench got killed
-  (``set_bench`` called ``stop``);
-- going "back" from the detail view → same, because ``set_bench`` runs
-  again when the user re-opens the bench;
-- multiple concurrent benches → impossible, only one panel existed.
-
-We lift process ownership into this module-level manager. Views subscribe
-to its signals and ask it to start/stop by path. The manager's ``QProcess``
-objects live as long as the app does (or until the user stops them),
-so running benches survive any view navigation and several can run at once.
-
-Thread-safety: everything here is main-thread only. QProcess itself is
-thread-affine, so this must never be touched from a worker.
+Main-thread only — QProcess is thread-affine.
 """
 
 from __future__ import annotations
@@ -25,13 +10,10 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, Signal
 
-# Max log lines to keep in memory per bench. Bench's honcho output is
-# chatty; an unbounded buffer is a memory leak over a long-running
-# session. 5000 lines ≈ 500 KB at 100 chars/line.
+# Cap log buffer per bench to keep long-running sessions from leaking memory.
 MAX_LOG_LINES: int = 5000
 
-# Source nvm before exec'ing bench so Frappe's watch.1 finds Node 18;
-# see the comment in bench_actions.py for the full story.
+# Source nvm before exec so Frappe sees Node 18, not the apt-shipped Node 12.
 _NVM_BOOTSTRAP_SCRIPT: str = (
     'if [ -s "$HOME/.nvm/nvm.sh" ]; then '
     'export NVM_DIR="$HOME/.nvm"; '
@@ -43,8 +25,6 @@ _NVM_BOOTSTRAP_SCRIPT: str = (
 
 @dataclass
 class _Entry:
-    """Per-bench state held by the manager."""
-
     bench_path: Path
     process: QProcess
     status: str = "starting"
@@ -52,17 +32,6 @@ class _Entry:
 
 
 class BenchProcessManager(QObject):
-    """Owns every running bench's :class:`QProcess`.
-
-    Signals fire on the main thread.
-
-    ``process_started(Path)`` — a fresh process was spawned.
-    ``process_stopped(Path, int)`` — process exited (exit code). The entry
-    is already removed before the signal fires.
-    ``output_appended(Path, str)`` — new stdout/stderr chunk.
-    ``status_changed(Path, str)`` — human-readable status string.
-    """
-
     process_started = Signal(Path)
     process_stopped = Signal(Path, int)
     output_appended = Signal(Path, str)
@@ -75,7 +44,6 @@ class BenchProcessManager(QObject):
     # --- public API ---------------------------------------------------
 
     def start(self, bench_path: Path) -> None:
-        """Spawn ``bench start`` inside ``bench_path``. No-op if already running."""
         resolved = bench_path.resolve()
         if resolved in self._entries:
             return
@@ -87,8 +55,7 @@ class BenchProcessManager(QObject):
         entry = _Entry(bench_path=resolved, process=process)
         self._entries[resolved] = entry
 
-        # Capture `resolved` in the lambda so late-binding doesn't hand
-        # the last loop iteration's path to every process's handler.
+        # Bind `resolved` per-lambda so late-binding doesn't share state.
         process.readyReadStandardOutput.connect(lambda p=resolved: self._drain_output(p))
         process.finished.connect(lambda code, _status, p=resolved: self._on_finished(p, code))
         process.errorOccurred.connect(lambda _err, p=resolved: self._on_error(p))
@@ -99,7 +66,6 @@ class BenchProcessManager(QObject):
         self._set_status(resolved, "starting")
 
     def stop(self, bench_path: Path) -> None:
-        """Ask a running bench to exit cleanly, then kill if it refuses."""
         resolved = bench_path.resolve()
         entry = self._entries.get(resolved)
         if entry is None:
@@ -118,7 +84,6 @@ class BenchProcessManager(QObject):
         return entry.process.state() != QProcess.ProcessState.NotRunning
 
     def running_paths(self) -> list[Path]:
-        """Snapshot of every bench currently running, in dict-insertion order."""
         return [
             p
             for p, e in self._entries.items()
@@ -126,7 +91,6 @@ class BenchProcessManager(QObject):
         ]
 
     def log_of(self, bench_path: Path) -> str:
-        """Accumulated log, oldest lines first. Empty string if unknown."""
         resolved = bench_path.resolve()
         entry = self._entries.get(resolved)
         if entry is None:
@@ -139,7 +103,6 @@ class BenchProcessManager(QObject):
         return entry.status if entry is not None else "stopped"
 
     def stop_all(self) -> None:
-        """Best-effort stop every running bench — used during app shutdown."""
         for path in list(self._entries):
             self.stop(path)
 
@@ -156,8 +119,6 @@ class BenchProcessManager(QObject):
         if not text:
             return
         entry.log_lines.append(text)
-        # Trim from the front when the buffer overflows. cheap because
-        # Python lists are arrays — O(n) but only on overflow events.
         if len(entry.log_lines) > MAX_LOG_LINES:
             overflow = len(entry.log_lines) - MAX_LOG_LINES
             entry.log_lines = entry.log_lines[overflow:]
@@ -170,11 +131,9 @@ class BenchProcessManager(QObject):
         if entry is None:
             return
         self.process_stopped.emit(bench_path, exit_code)
-        # No _set_status here — the entry is gone; ``status_of`` returns
-        # "stopped" for unknown paths.
 
     def _on_error(self, bench_path: Path) -> None:
-        # Bench binary missing on PATH is the usual cause.
+        # Usually means the bench binary isn't on PATH.
         entry = self._entries.pop(bench_path, None)
         if entry is None:
             return

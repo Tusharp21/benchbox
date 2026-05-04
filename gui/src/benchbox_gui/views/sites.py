@@ -1,9 +1,4 @@
-"""Sites tab — read-only list of every site across every bench.
-
-Mutations (new-site / drop / install-app / restore) live on the bench
-detail view now; this tab just shows what's present so the user can get
-a global picture without clicking through each bench.
-"""
+"""Sites tab — read-only list of every site across every bench."""
 
 from __future__ import annotations
 
@@ -33,7 +28,6 @@ class _Row:
 
 
 class SitesView(QWidget):
-    """Read-only list of every site across every bench, with name/path search."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)

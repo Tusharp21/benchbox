@@ -26,14 +26,6 @@ from benchbox_gui.widgets.dialogs import NewBenchDialog
 
 
 class BenchListView(QWidget):
-    """Discovers benches under $HOME and renders them as cards.
-
-    Subscribes to :class:`BenchProcessManager` so the "● running" chip on
-    each card reflects real-time process state across all benches — the
-    user can tell from the list alone which benches are up, without
-    opening each one.
-    """
-
     bench_selected = Signal(Path)
     refresh_requested = Signal()
 
@@ -168,7 +160,6 @@ class BenchListView(QWidget):
         self._apply_filter()
 
     def _apply_filter(self) -> None:
-        """Combine text search + running-only into a single visibility pass."""
         if not self._cards_by_path:
             self._no_results.setVisible(False)
             return

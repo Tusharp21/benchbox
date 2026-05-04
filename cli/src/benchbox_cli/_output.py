@@ -1,9 +1,4 @@
-"""Shared Rich-based output helpers for the CLI.
-
-Kept in one place so the formatting of a ``ComponentPlan`` in ``benchbox
-install --dry-run`` looks the same as when the plan is printed before an
-actual run. Same story for bench/site/app info tables.
-"""
+"""Rich-based CLI output helpers."""
 
 from __future__ import annotations
 

@@ -1,14 +1,4 @@
-"""apt component — base system packages Frappe needs to build and run.
-
-The scope here is *only* the packages Frappe itself needs from Ubuntu's
-archive (build toolchain, Python headers, libffi/libssl/libmariadb dev
-headers, fontconfig for wkhtmltopdf). Server packages like MariaDB and Redis
-are owned by their own components so they can manage config + services.
-
-The component is idempotent: ``plan()`` queries ``dpkg-query`` for each
-package's install state and emits ``skip_reason`` for anything already
-present, so re-running ``apply()`` on a fully-provisioned host is a no-op.
-"""
+"""apt component: base system packages Frappe needs."""
 
 from __future__ import annotations
 
@@ -49,7 +39,6 @@ BASE_PACKAGES: tuple[str, ...] = (
 
 
 def _dpkg_installed(runner: CommandRunner, package: str) -> bool:
-    """Return True iff ``dpkg-query`` reports ``package`` as install-ok installed."""
     result = runner.run(
         ["dpkg-query", "-W", "-f=${Status}", package],
         check=False,
@@ -63,17 +52,6 @@ def _dpkg_installed(runner: CommandRunner, package: str) -> bool:
 
 @dataclass
 class AptComponent:
-    """Install base build/runtime deps from the Ubuntu archive.
-
-    ``packages`` is exposed so tests (and, later, bench-profile configs) can
-    narrow or extend the default set without monkey-patching the module.
-
-    The ``probe_runner`` is used to *ask dpkg* which packages are already
-    installed. It is almost always a dry-run-disabled runner (probing needs
-    real output); the runner passed to ``apply()`` can be dry-run to show the
-    planned commands without executing them.
-    """
-
     name: str = field(default="apt", init=False)
     packages: tuple[str, ...] = BASE_PACKAGES
     probe_runner: CommandRunner = field(default_factory=lambda: CommandRunner(quiet=True))

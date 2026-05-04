@@ -1,9 +1,4 @@
-"""Non-secret local preferences — theme choice, saved defaults.
-
-Sibling to :mod:`benchbox_core.credentials` but a separate file because
-preferences aren't secrets: the credentials store stays at 0600 so nobody
-reads it accidentally; ``preferences.json`` is plain user-readable.
-"""
+"""Local preferences (theme, defaults)."""
 
 from __future__ import annotations
 
@@ -21,8 +16,6 @@ DEFAULT_THEME: Theme = "dark"
 
 
 def preferences_path() -> Path:
-    # Respect the same env var credentials uses so tests (and per-user
-    # overrides) end up with one consistent config dir.
     return config_dir() / _PREFERENCES_FILENAME
 
 
@@ -48,7 +41,6 @@ def _save(data: dict[str, object]) -> None:
 
 
 def get_theme() -> Theme:
-    """Return the saved theme or :data:`DEFAULT_THEME` if unset / unknown."""
     stored = _load().get("theme")
     if stored == "dark":
         return "dark"

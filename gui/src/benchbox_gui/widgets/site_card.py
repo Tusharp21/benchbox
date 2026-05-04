@@ -1,4 +1,4 @@
-"""One card per site in the Sites tab."""
+"""Per-site card."""
 
 from __future__ import annotations
 
@@ -24,15 +24,6 @@ class _Badge(QLabel):
 
 
 class SiteCard(QFrame):
-    """Renders a ``SiteInfo`` + its bench path, with per-card actions.
-
-    Signals:
-    - ``install_app_requested(bench_path, site_name)`` — opens an
-      install-app dialog preselected to this site + bench.
-    - ``drop_requested(bench_path, site_name)`` — opens a typed-name
-      confirm + drop flow.
-    """
-
     install_app_requested = Signal(Path, str)
     drop_requested = Signal(Path, str)
 
@@ -57,7 +48,7 @@ class SiteCard(QFrame):
         bench_path_label.setProperty("role", "dim")
         bench_path_label.setWordWrap(True)
 
-        install_btn = QPushButton("+ Install app")
+        install_btn = QPushButton("Install app")
         install_btn.setProperty("role", "primary")
         install_btn.setMinimumWidth(120)
         install_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -90,7 +81,6 @@ class SiteCard(QFrame):
         title_row.addLayout(title_col, 1)
         title_row.addLayout(actions)
 
-        # Cap visible app chips at 3 — cards get tall fast otherwise.
         badges = QHBoxLayout()
         badges.setSpacing(8)
         if site.db_name:

@@ -1,4 +1,4 @@
-"""Main window — left sidebar, top stats banner, main content via QStackedWidget."""
+"""Main window."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from benchbox_gui.views.settings_view import SettingsView
 from benchbox_gui.views.sites import SitesView
 from benchbox_gui.views.stats_banner import StatsBanner
 
-# (label, key, icon name) — icons resolved from benchbox_gui.resources.icons.
+# (label, page key, icon name)
 _SIDEBAR_ENTRIES: tuple[tuple[str, str, str], ...] = (
     ("Benches", "benches", "benches"),
     ("Install", "install", "install"),
@@ -43,8 +43,6 @@ _SIDEBAR_ENTRIES: tuple[tuple[str, str, str], ...] = (
 
 
 class MainWindow(QMainWindow):
-    """benchbox's top-level window."""
-
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("benchbox")
@@ -52,11 +50,6 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(960, 600)
 
         self._theme: preferences.Theme = preferences.get_theme()
-
-        # App-level singleton that owns every running `bench start`
-        # process. Views subscribe to it rather than owning their own
-        # QProcess, so switching views never kills a bench and multiple
-        # benches can run at once.
         self._process_manager = BenchProcessManager(self)
 
         self._stack = QStackedWidget()
@@ -76,8 +69,7 @@ class MainWindow(QMainWindow):
         self._register_page("logs", LogsView())
         self._register_page("docs", DocumentationView())
         self._register_page("settings", SettingsView())
-        # Detail view is not a sidebar entry; it's a transient page behind
-        # Benches.
+        # Detail view isn't in the sidebar; it sits behind the Benches list.
         self._bench_detail_index = self._stack.addWidget(self._bench_detail)
 
         self._sidebar = QListWidget()
@@ -130,12 +122,6 @@ class MainWindow(QMainWindow):
     # --- theme -------------------------------------------------------
 
     def _on_theme_toggled(self, theme: str) -> None:
-        """Handle a click on the stats-banner theme button.
-
-        Swaps the application stylesheet live, re-tints sidebar icons for
-        the new palette, and persists the choice so the next launch opens
-        in the same theme.
-        """
         if theme not in ("dark", "light"):
             return
         typed_theme: preferences.Theme = "light" if theme == "light" else "dark"
@@ -145,7 +131,6 @@ class MainWindow(QMainWindow):
         if isinstance(app, QApplication):
             app.setStyleSheet(stylesheet(typed_theme))
 
-        # Re-tint sidebar icons so they stay legible on the new palette.
         for row, (_, _, icon_name) in enumerate(_SIDEBAR_ENTRIES):
             item = self._sidebar.item(row)
             if item is not None:
@@ -156,20 +141,12 @@ class MainWindow(QMainWindow):
     # --- shutdown ----------------------------------------------------
 
     def shutdown_processes(self) -> None:
-        """Stop every tracked bench process — safe to call more than once.
-
-        Hooked into both ``closeEvent`` (window close) and
-        ``QApplication.aboutToQuit`` (everything else) so a stray
-        ``bench start`` never outlives the GUI, regardless of how the app
-        is exited.
-        """
         self._process_manager.stop_all()
         for view in (self._bench_detail,):
             shutdown = getattr(view, "shutdown", None)
             if callable(shutdown):
                 shutdown()
 
-    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — Qt override
-        """Stop every running bench when the user closes the window."""
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         self.shutdown_processes()
         super().closeEvent(event)

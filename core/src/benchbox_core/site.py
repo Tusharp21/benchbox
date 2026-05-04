@@ -1,17 +1,4 @@
-"""Site lifecycle operations — create, drop.
-
-Wraps ``bench new-site`` and ``bench drop-site``. Both of those resolve the
-bench they operate on from ``os.getcwd()``, so every call here sets
-``cwd=bench_path`` explicitly rather than forcing the caller to ``chdir``.
-
-Passwords (MariaDB root, new Administrator) are accepted as arguments and
-passed on the ``bench`` argv. This does mean they land in ``ps aux`` for
-the lifetime of the subprocess; for fully secret-safe behaviour a caller
-can alternatively pre-write ``sites/common_site_config.json`` with a
-``mariadb_root_password`` key and omit the flag (bench reads it from
-there). For benchbox's local-dev scope the argv path is the simpler
-default.
-"""
+"""Site lifecycle (new-site, drop-site)."""
 
 from __future__ import annotations
 
@@ -24,16 +11,14 @@ from benchbox_core.introspect import SiteInfo, read_sites
 
 
 class SiteAlreadyExistsError(RuntimeError):
-    """Raised when ``create_site`` would collide with an existing site dir."""
+    pass
 
 
 class SiteNotFoundError(RuntimeError):
-    """Raised when ``drop_site`` targets a site that isn't present."""
+    pass
 
 
 class SiteOperationError(RuntimeError):
-    """Raised when the wrapped ``bench`` command exits non-zero."""
-
     def __init__(self, operation: str, result: CommandResult) -> None:
         super().__init__(
             f"`bench {operation}` failed (exit {result.returncode}): "
@@ -45,23 +30,17 @@ class SiteOperationError(RuntimeError):
 
 @dataclass(frozen=True)
 class SiteCreateResult:
-    """Outcome of ``create_site``. ``info`` is ``None`` on dry-run."""
-
     command: CommandResult
     info: SiteInfo | None
 
 
 @dataclass(frozen=True)
 class SiteDropResult:
-    """Outcome of ``drop_site``."""
-
     command: CommandResult
 
 
 @dataclass(frozen=True)
 class SiteRestoreResult:
-    """Outcome of ``restore_site``."""
-
     command: CommandResult
 
 
@@ -81,15 +60,6 @@ def create_site(
     runner: CommandRunner | None = None,
     line_callback: Callable[[str], None] | None = None,
 ) -> SiteCreateResult:
-    """Run ``bench new-site`` inside ``bench_path`` and return a SiteInfo.
-
-    ``force`` maps to bench's ``--force`` (overwrite an existing site). When
-    False, we guard up front with ``SiteAlreadyExistsError`` so callers get
-    a clear error before the subprocess is even spawned.
-
-    ``line_callback`` opt-in streams subprocess output line-by-line to the
-    caller (used by the GUI's live-log dialog).
-    """
     if not force and _site_dir(bench_path, site_name).is_dir():
         raise SiteAlreadyExistsError(f"site {site_name!r} already exists under {bench_path}")
 
@@ -134,11 +104,6 @@ def drop_site(
     force: bool = False,
     runner: CommandRunner | None = None,
 ) -> SiteDropResult:
-    """Run ``bench drop-site`` inside ``bench_path``.
-
-    Raises ``SiteNotFoundError`` if the site dir doesn't exist when not in
-    dry-run mode, so callers don't waste a subprocess on a typo.
-    """
     active = runner if runner is not None else CommandRunner()
 
     if not active.dry_run and not _site_dir(bench_path, site_name).is_dir():
@@ -177,15 +142,6 @@ def restore_site(
     runner: CommandRunner | None = None,
     line_callback: Callable[[str], None] | None = None,
 ) -> SiteRestoreResult:
-    """Run ``bench --site <name> restore <sql>`` inside ``bench_path``.
-
-    ``sql_path`` is the SQL or .sql.gz dump produced by ``bench backup``.
-    ``with_public_files`` / ``with_private_files`` are the corresponding
-    file-tarballs; both are optional because backups without files are
-    valid. Raises :class:`SiteNotFoundError` when not in dry-run and the
-    site dir is missing (bench would just error out anyway; we fail fast
-    with a clearer message).
-    """
     active = runner if runner is not None else CommandRunner()
 
     if not active.dry_run and not _site_dir(bench_path, site_name).is_dir():

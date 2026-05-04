@@ -1,9 +1,4 @@
-"""`benchbox install` — one command to provision a Frappe-ready host.
-
-Runs preflight, gates on distro + arch, resolves the MariaDB root password
-(prompting once and persisting to the credentials store), then sequences
-every installer component through the core ``install()`` orchestrator.
-"""
+"""`benchbox install` command."""
 
 from __future__ import annotations
 

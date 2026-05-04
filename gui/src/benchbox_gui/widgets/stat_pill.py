@@ -1,4 +1,4 @@
-"""Small rounded pill used in the top stats banner."""
+"""Stat pill widget."""
 
 from __future__ import annotations
 
@@ -7,12 +7,6 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
 
 
 class StatPill(QFrame):
-    """A single stat: ``label`` on the left, ``value`` on the right.
-
-    ``set_value`` + ``set_accent`` are the only methods the banner needs;
-    everything else is cosmetic.
-    """
-
     def __init__(
         self,
         label: str,

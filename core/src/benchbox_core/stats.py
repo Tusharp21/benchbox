@@ -1,9 +1,4 @@
-"""Live system stats for the GUI top banner.
-
-Cheap, snapshot-style reads — the GUI polls this on a timer (e.g. every
-2 seconds) and redraws. Nothing here is authoritative for install decisions;
-it's purely informational.
-"""
+"""System stats for the top banner."""
 
 from __future__ import annotations
 
@@ -50,7 +45,6 @@ class SystemStats:
 
 
 def get_cpu_percent(interval: float | None = 0.1) -> float:
-    """Return CPU usage as a percent. ``interval=None`` is non-blocking."""
     return float(psutil.cpu_percent(interval=interval))
 
 
@@ -75,11 +69,6 @@ def get_disk(path: Path | None = None) -> DiskStats:
 
 
 def get_service_status(name: str) -> ServiceStatus:
-    """Query ``systemctl is-active <name>``.
-
-    Returns ``state="unknown"`` on hosts without systemd or when the call
-    times out — never raises.
-    """
     systemctl = shutil.which("systemctl")
     if systemctl is None:
         return ServiceStatus(name=name, active=False, state="unknown")
@@ -98,14 +87,7 @@ def get_service_status(name: str) -> ServiceStatus:
 
 
 def get_node_version() -> str | None:
-    """Return the Node version Frappe will see, or ``None`` if no node is reachable.
-
-    Frappe calls ``node`` from PATH after sourcing nvm; we mirror that
-    lookup. Prefers the highest installed nvm-managed v18 (Frappe v15's
-    required major), then the highest-major nvm install, then whatever
-    apt-installed ``node`` is on PATH. Returns the bare version string
-    without the leading ``v`` (e.g. ``"18.20.4"``).
-    """
+    # Prefer nvm Node 18 (Frappe v15), then any nvm Node, then system node.
     nvm_versions = Path.home() / ".nvm" / "versions" / "node"
     if nvm_versions.is_dir():
         v18 = sorted(nvm_versions.glob("v18.*"), reverse=True)
@@ -123,7 +105,6 @@ def get_node_version() -> str | None:
 
 
 def _query_node_version(node_bin: str) -> str | None:
-    """Run ``<node_bin> --version`` and strip the leading ``v``."""
     try:
         proc = subprocess.run(
             [node_bin, "--version"],
@@ -146,7 +127,6 @@ def snapshot(
     disk_path: Path | None = None,
     services: tuple[str, ...] = DEFAULT_SERVICES,
 ) -> SystemStats:
-    """One-shot snapshot of every tracked stat."""
     return SystemStats(
         cpu_percent=get_cpu_percent(cpu_interval),
         memory=get_memory(),

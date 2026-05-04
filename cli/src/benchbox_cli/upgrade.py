@@ -1,11 +1,4 @@
-"""`benchbox upgrade` — pull the latest benchbox from the install.sh URL.
-
-Re-runs the same ``curl -fsSL … | bash`` pipeline a user would type to
-install fresh. We execute it with ``bash -c`` so the child process replaces
-the venv benchbox is currently running out of — the running process
-finishes before install.sh starts tearing down the old venv, so we don't
-yank the floor from under ourselves.
-"""
+"""`benchbox upgrade` — re-run install.sh."""
 
 from __future__ import annotations
 
@@ -30,28 +23,17 @@ def main(
         help="override the install.sh URL (for forks / non-main branches)",
     ),
 ) -> None:
-    """Download and run the benchbox install.sh in-place.
-
-    Equivalent to the install one-liner:
-
-        curl -fsSL <install_url> | bash
-
-    Your credentials (~/.benchbox/credentials.json) and session logs are
-    left alone; only the venv + shims + .desktop are re-created.
-    """
+    """Re-run install.sh in place. Credentials + logs are preserved."""
     console.print(f"[dim]fetching {install_url}[/]")
     console.print("[dim]this replaces the current benchbox install in-place…[/]\n")
 
-    # We exec the curl-pipe-bash pipeline so our process is swapped out
-    # atomically — the new install script gets a clean slate.
     cmd = f"curl -fsSL {install_url!r} | bash"
     try:
-        exit_code = os.system(f"bash -c {cmd!r}")  # noqa: S605 — intentional shell pipeline
+        exit_code = os.system(f"bash -c {cmd!r}")  # noqa: S605
     except OSError as err:
         err_console.print(f"[red]failed to spawn bash: {err}[/]")
         raise typer.Exit(1) from err
 
-    # os.system returns the waitpid-style status; extract the real exit code.
     rc = os.waitstatus_to_exitcode(exit_code) if exit_code != 0 else 0
     if rc != 0:
         err_console.print(f"[red]install.sh exited with status {rc}[/]")

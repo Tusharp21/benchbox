@@ -1,12 +1,4 @@
-"""Installer package — components that bring a host up to Frappe-ready state.
-
-Every installer component exposes a two-phase contract: ``plan()`` returns a
-list of steps without touching the system, and ``apply()`` executes them.
-The orchestrator in :mod:`benchbox_core.installer.runner` sequences components
-and short-circuits on the first failure.
-
-Public surface re-exported here; internal helpers live in underscored modules.
-"""
+"""Installer components: plan() then apply(), sequenced by runner.install()."""
 
 from __future__ import annotations
 

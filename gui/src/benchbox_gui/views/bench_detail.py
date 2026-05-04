@@ -1,26 +1,4 @@
-"""Detail view for a single bench — the working canvas for one bench.
-
-Layout (top → bottom):
-
-- :class:`BenchDetailHeader` — sticky, holds back / title / + Add ▾ /
-  Bench ▾ / Open folder.
-- :class:`QTabWidget` — the working area:
-    * **Apps** tab (always first) — :class:`AppCard` grid for every app
-      registered in the bench, with per-card install / uninstall / remove
-      actions.
-    * One :class:`SiteTab` per site — clickable URL, app badges, quick
-      chips, and a :class:`BenchCommandRunner` whose chips are scoped to
-      that site.
-    * **Free terminal** tab (always last) — bench-wide command runner
-      with no site locked; used for ``bench migrate`` / ``bench update``
-      etc.
-- :class:`BenchProcessDock` — sticky bottom, owns Start/Stop and the
-  collapsible bench-start log.
-
-Signal flow: child widgets emit typed signals; this view sequences the
-dialogs, ``QInputDialog`` confirms, and operation workers, then calls
-:meth:`refresh` so the tabs re-render with fresh introspection data.
-"""
+"""Bench detail page: header + tabbed content + sticky process dock."""
 
 from __future__ import annotations
 
@@ -65,11 +43,6 @@ _FREE_TAB_LABEL = "Free terminal"
 
 
 def _v_scroll(content: QWidget) -> QScrollArea:
-    """Wrap ``content`` in a vertical-only scroll area.
-
-    Horizontal scroll is forbidden — the user wants long content to
-    expand downward rather than off the right edge of the window.
-    """
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -80,8 +53,6 @@ def _v_scroll(content: QWidget) -> QScrollArea:
 
 
 class BenchDetailView(QWidget):
-    """Single home for every per-bench mutation, organised as tabs."""
-
     back_requested = Signal()
 
     def __init__(
@@ -164,11 +135,6 @@ class BenchDetailView(QWidget):
     # --- loading ------------------------------------------------------
 
     def load(self, path: Path) -> None:
-        """(Re)render the entire detail view for ``path``.
-
-        Drops every site tab and rebuilds them from fresh introspection.
-        Apps tab + Free terminal tab are repopulated in place.
-        """
         self._current_path = path
         self._info = introspect.introspect(path)
         info = self._info
@@ -182,9 +148,6 @@ class BenchDetailView(QWidget):
 
         self._dock.set_bench(path, webserver_port=info.webserver_port)
 
-        # Apps tab — rebuild card grid in place. Skip the bench-path
-        # label on each card; every app here belongs to the same bench
-        # so the path would just repeat itself ``len(info.apps)`` times.
         app_cards: list[QWidget] = []
         for app in info.apps:
             card = AppCard(path, app, show_bench_path=False)
@@ -195,24 +158,10 @@ class BenchDetailView(QWidget):
             app_cards.append(card)
         self._apps_grid.set_cards(app_cards)
 
-        # Free terminal — refresh bench path + site list (for chip
-        # suggestions, even though no site is locked).
         self._free_runner.set_bench(path, [s.name for s in info.sites])
-
-        # Site tabs — drop old, build fresh. Order: Apps, [site tabs],
-        # Free terminal.
         self._rebuild_site_tabs(info, path)
 
     def _rebuild_site_tabs(self, info: introspect.BenchInfo, path: Path) -> None:
-        """Replace every site tab with a fresh SiteTab per site.
-
-        Removes existing site tabs in reverse order (so QTabWidget
-        indices stay valid as we tear down). The Apps tab (index 0) and
-        Free terminal tab (last) are left in place.
-        """
-        # Tear down in reverse so indices are stable while we iterate.
-        # SiteTab lives wrapped inside a QScrollArea — call shutdown via
-        # the bookkeeping dict instead of probing the wrapper.
         for tab in self._site_tabs.values():
             tab.shutdown()
         for i in range(self._tabs.count() - 2, 0, -1):
@@ -222,10 +171,6 @@ class BenchDetailView(QWidget):
                 widget.deleteLater()
         self._site_tabs.clear()
 
-        # Insert each site tab between Apps (index 0) and Free terminal
-        # (currently the last tab). SiteTab is wrapped in a vertical
-        # scroll area so chip rows + a long command-runner buffer never
-        # force horizontal scroll.
         free_index = self._tabs.count() - 1
         bench_app_names = [a.name for a in info.apps]
         for offset, site in enumerate(info.sites):
@@ -239,17 +184,11 @@ class BenchDetailView(QWidget):
             self._tabs.insertTab(insert_at, _v_scroll(tab), site.name)
             self._tabs.setTabToolTip(insert_at, f"Working context: {site.name}")
             self._site_tabs[site.name] = tab
-            # Keep the free-terminal index up-to-date so we never
-            # accidentally insert past it.
             free_index = insert_at + 1
 
-        # Sanity: Apps stays selected on first load; later refreshes
-        # respect the user's current tab where possible.
         if self._tabs.currentIndex() < 0 or self._tabs.currentIndex() > free_index:
             self._tabs.setCurrentIndex(0)
-        # Re-sync the dock now that the tab strip's been rebuilt — the
-        # currentChanged signal doesn't fire when we set the index back
-        # to where it already was.
+        # Tab indices may not have changed; force a dock resync.
         self._on_tab_changed(self._tabs.currentIndex())
 
     # --- bench-process actions ---------------------------------------
@@ -267,18 +206,12 @@ class BenchDetailView(QWidget):
             open_in_file_manager(self._current_path)
 
     def _on_tab_changed(self, _index: int) -> None:
-        """Sync the dock's per-site buttons with the active tab.
-
-        Apps + Free terminal tabs map to ``None`` (dock hides the per-
-        site buttons); a site tab maps to that site's name + URL.
-        """
         widget = self._tabs.currentWidget()
+        # Tab widget is the QScrollArea wrapper; the SiteTab lives inside.
         site_tab = widget.findChild(SiteTab) if widget is not None else None
         if site_tab is None:
             self._dock.set_current_site(None)
             return
-        # Tab widget is the QScrollArea wrapper; look up the inner
-        # SiteTab so we can ask it for its URL.
         port = self._info.webserver_port if self._info is not None else 8000
         url = f"http://{site_tab.site_name}:{port}"
         self._dock.set_current_site(site_tab.site_name, url)
@@ -291,7 +224,6 @@ class BenchDetailView(QWidget):
             QDesktopServices.openUrl(QUrl(url))
 
     def _on_drop_site_from_dock(self, site_name: str) -> None:
-        """Dock-emitted Drop site → reuse the existing typed-confirm flow."""
         if self._current_path is None:
             return
         self._on_delete_site(self._current_path, site_name)
@@ -308,15 +240,6 @@ class BenchDetailView(QWidget):
         self._prefill_free_runner("bench restart")
 
     def _prefill_free_runner(self, command: str) -> None:
-        """Drop ``command`` into the bench-wide runner and switch tabs.
-
-        Bench-level chores are heavy enough that we want the user to
-        review/Enter rather than fire-and-forget. The Free terminal tab
-        is the natural home for non-site commands, so we open it pointed
-        at the right command and let the user confirm.
-        """
-        # Free terminal is the last tab; switch the user there so they
-        # see the prefilled command.
         free_index = self._tabs.count() - 1
         self._tabs.setCurrentIndex(free_index)
         self._free_runner._input.setText(command)  # noqa: SLF001
@@ -413,14 +336,6 @@ class BenchDetailView(QWidget):
     def _on_switch_branch_requested(
         self, bench_path: Path, app_name: str, current_branch: str
     ) -> None:
-        """Prompt for a target branch, then prefill the Free terminal.
-
-        ``bench switch-to-branch`` is bench-wide (it rebuilds the venv
-        and re-checks out every named app), so the natural place to
-        run it is the bench-level Free terminal — not a per-site tab.
-        We pre-fill rather than auto-fire because the command takes
-        several minutes and a typo on the branch name is annoying.
-        """
         seed = current_branch or ""
         prompt_label = (
             f"Switch <b>{app_name}</b> to which branch?<br>"
@@ -442,9 +357,6 @@ class BenchDetailView(QWidget):
                 f"<b>{app_name}</b> is already on <b>{target}</b>; nothing to do.",
             )
             return
-        # bench switch-to-branch <branch> <apps…> [--upgrade]
-        # We pass --upgrade so requirements/migrations get applied; this
-        # mirrors the Frappe docs' recommended invocation.
         self._prefill_free_runner(
             f"bench switch-to-branch {target} {app_name} --upgrade"
         )
@@ -535,14 +447,6 @@ class BenchDetailView(QWidget):
         )
 
     def _on_delete_site(self, bench_path: Path, site_name: str) -> None:
-        """Typed-confirm popup → run ``bench drop-site`` through the runner.
-
-        We deliberately route through the site tab's command runner
-        rather than the spinner/operation-worker path so the user sees
-        the destructive command in the same terminal log as everything
-        else. The display string masks the password; the real argv
-        receives the saved value.
-        """
         confirm = TypedNameConfirmDialog(
             site_name,
             title="Delete site",
@@ -562,9 +466,7 @@ class BenchDetailView(QWidget):
         site_tab = self._site_tabs.get(site_name)
         if site_tab is None:
             return
-        # Connect once, only for this drop, so the refresh fires after
-        # the process exits. Lambdas + a one-shot disconnect keep the
-        # site_tab from accumulating connections across attempts.
+        # One-shot connection so the page refreshes when the drop finishes.
         runner = site_tab.runner
 
         def _on_finished(code: int) -> None:
@@ -621,8 +523,6 @@ class BenchDetailView(QWidget):
 
     def _on_short_op_success(self, message: str) -> None:
         self._close_progress()
-        # After a drop, prefer landing on the Apps tab so the user isn't
-        # staring at a now-stale site tab.
         self._tabs.setCurrentIndex(0)
         self._refresh_after_op()
         QMessageBox.information(self, "Done", message)
@@ -634,17 +534,9 @@ class BenchDetailView(QWidget):
     # --- shutdown hook -----------------------------------------------
 
     def shutdown(self) -> None:
-        """Kill any in-flight runner command in any tab.
-
-        ``BenchProcessManager`` cleans up its own bench-start processes;
-        this only covers the per-tab :class:`BenchCommandRunner`s that
-        own their own QProcess outside the manager.
-        """
         self._free_runner.shutdown()
         for tab in self._site_tabs.values():
             tab.shutdown()
 
 
-# Re-export discovery for any caller that previously imported it from
-# this module by accident; keeps refactor surface small.
 __all__ = ["BenchDetailView", "discovery"]

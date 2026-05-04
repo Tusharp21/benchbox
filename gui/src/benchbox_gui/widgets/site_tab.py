@@ -1,20 +1,4 @@
-"""One tab in the bench detail view, scoped to a single site.
-
-Three sections, top → bottom:
-
-1. **Site info** — a compact 2-column key/value table (db, apps).
-2. **Maintenance** — Migrate, Clear cache, Clear website cache, Backup.
-   Each click pre-fills the embedded :class:`BenchCommandRunner` with
-   a ``bench --site …`` command; the user reviews and presses Enter.
-3. **Run any command** — embedded :class:`BenchCommandRunner` (default
-   chips suppressed: the buttons above already cover those actions).
-
-Open in browser and Drop site live on the bench-detail page's bottom
-:class:`BenchProcessDock` rather than in this tab. The dock listens
-for tab changes and re-targets those buttons to whichever site tab
-the user is on, so the actions are always one mouse-move away
-without each site tab having to repaint them.
-"""
+"""Per-site tab inside the bench detail view."""
 
 from __future__ import annotations
 
@@ -26,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
@@ -35,15 +20,11 @@ from PySide6.QtWidgets import (
 
 from benchbox_gui.widgets.command_runner import BenchCommandRunner
 
-_SECTION_SPACING_TOP: int = 4
-_SECTION_SPACING_BELOW: int = 2
-
 
 def _section_header(title: str) -> QWidget:
-    """Render an all-caps section title with a thin separator below it."""
     container = QWidget()
     layout = QVBoxLayout(container)
-    layout.setContentsMargins(0, _SECTION_SPACING_TOP, 0, _SECTION_SPACING_BELOW)
+    layout.setContentsMargins(0, 4, 0, 2)
     layout.setSpacing(4)
 
     label = QLabel(title.upper())
@@ -61,8 +42,6 @@ def _section_header(title: str) -> QWidget:
 
 
 class SiteTab(QWidget):
-    """Per-site working area embedded inside the bench detail's QTabWidget."""
-
     def __init__(
         self,
         bench_path: Path,
@@ -76,38 +55,25 @@ class SiteTab(QWidget):
         self._bench_path = bench_path
         self._site = site
         self._url = f"http://{site.name}:{webserver_port}"
-        # Bench-wide apps list, used as a fallback when introspect
-        # couldn't determine which apps are installed on *this* site
-        # (modern Frappe stores that in the DB rather than apps.txt).
-        # At least we can show what's *available* in the bench so the
-        # user isn't staring at "(none)".
         self._bench_apps: list[str] = list(bench_apps or [])
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
 
-        # 1. ---- site info -----------------------------------------
         layout.addWidget(_section_header("Site info"))
         layout.addLayout(self._build_info_table())
         layout.addSpacing(6)
 
-        # 2. ---- maintenance ---------------------------------------
         layout.addWidget(_section_header("Maintenance"))
         layout.addLayout(self._build_maintenance_grid())
         layout.addSpacing(6)
 
-        # 3. ---- run any command ----------------------------------
         layout.addWidget(_section_header("Run any command"))
-        # show_chips=False so the embedded runner doesn't repeat the
-        # Migrate / Clear cache buttons rendered in the Maintenance
-        # section above.
         self._runner = BenchCommandRunner(locked_site=site.name, show_chips=False)
         self._runner.set_bench(bench_path, [site.name])
         self._runner.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self._runner, 1)
-
-    # --- public API ---------------------------------------------------
 
     @property
     def site_name(self) -> str:
@@ -123,23 +89,12 @@ class SiteTab(QWidget):
 
     @property
     def runner(self) -> BenchCommandRunner:
-        """The embedded runner — exposed so the parent can dispatch
-        commands (e.g. drop-site after a typed confirm) into the same
-        terminal the user is already looking at."""
         return self._runner
 
     def shutdown(self) -> None:
-        """Kill any in-flight command — called on app shutdown / tab destroy."""
         self._runner.shutdown()
 
     def run_drop_site(self, *, root_password: str) -> bool:
-        """Spawn ``bench drop-site`` through the runner with the password masked.
-
-        Returns ``False`` if the runner is busy. The displayed command
-        masks the password; the actual subprocess receives the real
-        value via ``--root-password``. Output streams into the runner's
-        log like any other command.
-        """
         site = self._site.name
         real_cmd = (
             f"bench drop-site {shlex.quote(site)} "
@@ -148,22 +103,11 @@ class SiteTab(QWidget):
         display_cmd = f"bench drop-site {site} --root-password ******** --no-backup"
         return self._runner.run_command(real_cmd, display=display_cmd)
 
-    # --- section builders -------------------------------------------
-
     def _build_info_table(self) -> QGridLayout:
-        """Compact 2-column key/value table.
-
-        QGridLayout with a fixed-width key column on the left and a
-        wrap-friendly value column on the right reads like a metadata
-        table without bringing the QTableWidget chrome (selection
-        backgrounds, header bar, sort arrows) we don't want here.
-        """
         grid = QGridLayout()
         grid.setHorizontalSpacing(20)
         grid.setVerticalSpacing(4)
         grid.setContentsMargins(0, 0, 0, 0)
-        # Value column expands; the key column stays compact at its
-        # text's natural width.
         grid.setColumnStretch(0, 0)
         grid.setColumnStretch(1, 1)
 
@@ -200,7 +144,6 @@ class SiteTab(QWidget):
         return grid
 
     def _format_apps_value(self) -> str:
-        """Apps line — site-specific list first, bench-wide fallback otherwise."""
         if self._site.installed_apps:
             return ", ".join(self._site.installed_apps)
         if self._bench_apps:
@@ -213,16 +156,6 @@ class SiteTab(QWidget):
         return "(none)"
 
     def _build_maintenance_grid(self) -> QGridLayout:
-        """3-column action grid.
-
-        First row covers the routine maintenance commands; second row
-        adds two state-aware toggles (Scheduler + Maintenance mode).
-        Toggle labels read as the *action* clicking will perform — so
-        a paused scheduler shows "Resume scheduler", a running one
-        shows "Pause scheduler". The button picks up the ``danger``
-        role when the site is in a non-default state so the user can
-        spot a paused scheduler / maintenance-on site at a glance.
-        """
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
@@ -246,10 +179,6 @@ class SiteTab(QWidget):
         backup = self._mk_button("Backup")
         backup.clicked.connect(lambda: self._runner.prefill(f"bench --site {site} backup"))
 
-        # State-aware toggles. Build label + role + target command
-        # from ``self._site``; on click, prefill the runner so the
-        # user reviews + Enter (state changes are heavy enough that
-        # an accidental misclick on the wrong site stings).
         if self._site.scheduler_paused:
             scheduler = self._mk_button("Resume scheduler", role="danger")
             scheduler.clicked.connect(
@@ -283,8 +212,6 @@ class SiteTab(QWidget):
         for col in range(3):
             grid.setColumnStretch(col, 1)
         return grid
-
-    # --- helpers ------------------------------------------------------
 
     def _mk_button(self, label: str, *, role: str | None = None) -> QPushButton:
         btn = QPushButton(label)

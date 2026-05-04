@@ -1,23 +1,4 @@
-"""Find existing Frappe benches on disk.
-
-A Frappe bench is a directory with roughly this shape::
-
-    frappe-bench/
-      apps/
-        frappe/          <- must be present; it's what makes a bench a bench
-        erpnext/
-        ...
-      sites/
-        apps.txt         <- or common_site_config.json
-        common_site_config.json
-        site1.local/
-      env/
-      Procfile
-
-We recognise a bench by the presence of ``apps/frappe/`` plus a populated
-``sites/`` dir. That's stricter than "has an apps folder" (which would match
-any random project) and cheaper than parsing ``apps.txt``.
-"""
+"""Find Frappe benches on disk."""
 
 from __future__ import annotations
 
@@ -25,8 +6,7 @@ from pathlib import Path
 
 DEFAULT_MAX_DEPTH: int = 3
 
-# Directory names we never descend into when searching — fast-path skips that
-# also avoid accidentally walking into massive caches or vendored trees.
+# Skip these directories outright; saves time + avoids walking caches.
 _SKIP_NAMES: frozenset[str] = frozenset(
     {
         "node_modules",
@@ -47,7 +27,6 @@ _SKIP_NAMES: frozenset[str] = frozenset(
 
 
 def is_bench(path: Path) -> bool:
-    """Return True if ``path`` looks like a Frappe bench directory."""
     if not path.is_dir():
         return False
     apps_dir = path / "apps"
@@ -65,11 +44,6 @@ def discover_benches(
     search_paths: list[Path] | None = None,
     max_depth: int = DEFAULT_MAX_DEPTH,
 ) -> list[Path]:
-    """Scan for Frappe benches rooted under ``search_paths``.
-
-    Defaults to the user's home directory. Returned paths are resolved
-    (absolute, symlinks dereferenced) and sorted for stable output.
-    """
     if search_paths is None:
         search_paths = [Path.home()]
 
@@ -94,7 +68,7 @@ def _scan(current: Path, depth_remaining: int, found: set[Path], visited: set[Pa
 
     if is_bench(current):
         found.add(resolved)
-        return  # Don't descend into a bench — apps/frappe has its own tree.
+        return  # Don't descend; apps/frappe is its own tree.
 
     if depth_remaining <= 0:
         return

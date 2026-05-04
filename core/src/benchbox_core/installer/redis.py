@@ -1,12 +1,4 @@
-"""Redis component — install redis-server, enable + start the service.
-
-Scope is intentionally narrow: apt install plus service management. Frappe's
-own bench spawns per-bench redis-cache / redis-queue / redis-socketio on
-private ports via the Procfile, so the system redis-server on 6379 isn't
-strictly required at runtime — but Frappe's install docs enable it, and
-having the ``redis-cli`` / ``redis-server`` binaries present is what bench
-needs in order to spawn its own processes.
-"""
+"""Redis component."""
 
 from __future__ import annotations
 
@@ -38,7 +30,6 @@ def _service_active(runner: CommandRunner, service: str) -> bool:
 
 @dataclass
 class RedisComponent:
-    """Install and enable system redis-server."""
 
     name: str = field(default="redis", init=False)
     probe_runner: CommandRunner = field(default_factory=lambda: CommandRunner(quiet=True))

@@ -1,9 +1,4 @@
-"""benchbox — entrypoint for the CLI.
-
-Wires the ``install``, ``stats``, ``bench``, ``site``, and ``app`` subcommand
-groups into one Typer app. Nothing interesting happens here; the per-command
-logic lives in the sibling modules.
-"""
+"""benchbox CLI entrypoint."""
 
 from __future__ import annotations
 

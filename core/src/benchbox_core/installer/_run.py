@@ -1,13 +1,4 @@
-"""Subprocess helper used by every installer component.
-
-Wraps :mod:`subprocess` with:
-- structured logging (every command + its output lands in the session log)
-- a dry-run switch that records what *would* run without executing
-- capture of stdout/stderr for later inspection
-
-Components never call ``subprocess`` directly — they go through ``CommandRunner``
-so the GUI/CLI can surface the same stream of events.
-"""
+"""Subprocess helper with logging, dry-run, capture, and optional line streaming."""
 
 from __future__ import annotations
 
@@ -24,17 +15,7 @@ _log = get_logger(__name__)
 
 
 def _nvm_node_bin() -> str | None:
-    """Return the nvm-managed Node bin dir, or None if nvm isn't set up.
-
-    Frappe's ``bench init`` calls yarn → node; if the inherited PATH only
-    contains the apt-installed Node (12.22.9 on Ubuntu 22.04), bench bails
-    with "engine node incompatible: expected >=18". We prepend the
-    nvm-managed Node bin dir so every subprocess we spawn finds Node 18+
-    regardless of whether the user sourced nvm in their shell.
-
-    Prefers v18 (Frappe v15's required major). Falls back to the highest
-    available major if no v18 is present.
-    """
+    # nvm-managed Node 18 is what Frappe needs; system Node 12 fails bench init.
     nvm_versions = Path.home() / ".nvm" / "versions" / "node"
     if not nvm_versions.is_dir():
         return None
@@ -48,7 +29,6 @@ def _nvm_node_bin() -> str | None:
 
 
 def _build_subprocess_env() -> dict[str, str]:
-    """Return an os.environ copy with nvm's Node prepended to PATH."""
     env = os.environ.copy()
     nvm_bin = _nvm_node_bin()
     if nvm_bin:
@@ -60,13 +40,11 @@ def _build_subprocess_env() -> dict[str, str]:
 
 @dataclass(frozen=True)
 class CommandResult:
-    """Outcome of a single command execution."""
-
     command: tuple[str, ...]
     returncode: int
     stdout: str
     stderr: str
-    executed: bool  # False when the runner is in dry-run mode
+    executed: bool  # False on dry-run
 
     @property
     def ok(self) -> bool:
@@ -75,17 +53,7 @@ class CommandResult:
 
 @dataclass
 class CommandRunner:
-    """Executes argv lists; records everything through the benchbox logger.
-
-    Default behaviour captures stdout/stderr and returns them on the result.
-    In dry-run mode, commands are logged but never spawned — the returncode
-    is reported as 0 and ``executed`` is False.
-
-    ``quiet=True`` demotes the per-command "$ cmd / -> exit N" lines from
-    INFO to DEBUG so they only land in the session log file, not on the
-    console. Probe runners (dpkg-query, systemctl is-active, etc.) use this
-    so the terminal shows mutations only and stays readable.
-    """
+    """Argv runner with logging, dry-run, and an optional quiet (DEBUG-level) mode."""
 
     dry_run: bool = False
     quiet: bool = False
@@ -105,15 +73,6 @@ class CommandRunner:
         timeout: float | None = None,
         line_callback: Callable[[str], None] | None = None,
     ) -> CommandResult:
-        """Spawn ``command`` and return a :class:`CommandResult`.
-
-        With ``line_callback`` provided, switch from the default buffered
-        ``subprocess.run`` to a streaming ``Popen`` and call
-        ``line_callback(line)`` for each line of merged stdout/stderr as it
-        arrives. The buffered behaviour is preserved when no callback is
-        passed so existing callers (probes, install components) stay
-        unchanged.
-        """
         argv = tuple(command)
         pretty = shlex.join(argv)
         emit = _log.debug if self.quiet else _log.info
@@ -170,18 +129,11 @@ class CommandRunner:
         if proc.stderr:
             _log.debug("stderr: %s", proc.stderr.rstrip())
 
-        # Surface the exit code at INFO so the session log always has at
-        # least one post-command line per run; on failure, also mirror
-        # stdout/stderr at INFO so users can see why without flipping to
-        # DEBUG.
         if proc.returncode == 0:
             emit("  -> exit 0")
         else:
-            # On a quiet (probe) runner, a non-zero exit is usually
-            # informational (package not installed yet) — keep it at the
-            # same level as the rest of the probe output. Loud runners log
-            # failures at INFO and mirror stdout/stderr so users can see
-            # why something broke without flipping to DEBUG.
+            # On quiet probe runners, non-zero is often expected (package
+            # not installed yet); only mirror stdout/stderr on loud runners.
             emit("  -> exit %d", proc.returncode)
             if not self.quiet:
                 if proc.stdout:
@@ -212,13 +164,7 @@ class CommandRunner:
         check: bool,
         emit,  # type: ignore[no-untyped-def]
     ) -> CommandResult:
-        """Live-stream stdout/stderr through ``line_callback``.
-
-        stderr is merged into stdout so the callback receives a single
-        chronologically-ordered stream — matters for things like
-        ``bench get-app`` where pip and git both write to stderr but the
-        user wants to read the events in the order they happened.
-        """
+        # stderr merged into stdout so the callback gets one ordered stream.
         try:
             proc = subprocess.Popen(  # noqa: S603  # argv list, never shell=True
                 argv,

@@ -1,9 +1,4 @@
-"""Apps tab — read-only list of every (bench, app) on the host.
-
-Mutations (get-app / new-app / install / uninstall / remove) live on the
-bench detail view now; this tab just shows what's present so the user can
-get a global picture without clicking through each bench.
-"""
+"""Apps tab — read-only list of every (bench, app) on the host."""
 
 from __future__ import annotations
 
@@ -33,7 +28,6 @@ class _Row:
 
 
 class AppsView(QWidget):
-    """Read-only list of every (bench, app), with name/path search."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)

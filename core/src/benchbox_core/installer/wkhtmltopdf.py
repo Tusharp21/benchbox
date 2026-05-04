@@ -1,20 +1,4 @@
-"""wkhtmltopdf component — patched-qt build for Frappe print formats.
-
-Frappe needs the *patched-qt* wkhtmltopdf build (the unpatched Ubuntu
-archive package renders print formats with subtly broken fonts and
-margins). We download the ``.deb`` from the upstream ``wkhtmltopdf/packaging``
-GitHub release and install it through apt so transitive deps get resolved
-automatically.
-
-Three plan shapes, selected by probing ``wkhtmltopdf --version``:
-    - missing → download + install patched .deb
-    - patched → skip (everything is already how we want it)
-    - unpatched → purge + download + install; the purge step is explicit in
-      the plan so the user sees why we're touching a working binary
-
-Ubuntu 24.04 (``noble``) uses the ``jammy`` .deb because upstream packaging
-hasn't shipped a noble build; the jammy binary runs fine on noble's libs.
-"""
+"""wkhtmltopdf 0.12.6.1 patched-qt build (Frappe needs the patched build)."""
 
 from __future__ import annotations
 
@@ -37,12 +21,11 @@ UBUNTU_PACKAGE: str = "wkhtmltopdf"  # what the unpatched Ubuntu archive ships a
 
 
 class UnsupportedWkhtmltopdfPlatform(RuntimeError):
-    """Raised when the current OS/arch isn't one we have a patched build for."""
+    pass
 
 
 def _codename_for(ubuntu_version: str) -> str:
-    # Upstream packaging only ships jammy + focal + bullseye builds for this
-    # release. 24.04 noble uses the jammy build (libs are ABI-compatible).
+    # 24.04 noble uses the jammy build — libs are ABI-compatible.
     if ubuntu_version in {"22.04", "24.04"}:
         return "jammy"
     raise UnsupportedWkhtmltopdfPlatform(
@@ -76,15 +59,12 @@ def deb_url(ubuntu_version: str, machine_arch: str) -> str:
 
 @dataclass(frozen=True)
 class WkhtmltopdfProbeResult:
-    """Outcome of probing the system for an existing wkhtmltopdf."""
-
     installed: bool
     patched: bool
     raw_version: str | None
 
 
 def probe_wkhtmltopdf(runner: CommandRunner) -> WkhtmltopdfProbeResult:
-    """Run ``wkhtmltopdf --version`` and interpret the output."""
     result = runner.run(["wkhtmltopdf", "--version"], check=False)
     if not result.executed or result.returncode != 0:
         return WkhtmltopdfProbeResult(installed=False, patched=False, raw_version=None)
@@ -95,15 +75,10 @@ def probe_wkhtmltopdf(runner: CommandRunner) -> WkhtmltopdfProbeResult:
 
 @dataclass
 class WkhtmltopdfComponent:
-    """Install the patched-qt wkhtmltopdf build for Frappe print formats."""
-
     name: str = field(default="wkhtmltopdf", init=False)
-    ubuntu_version: str = ""  # e.g. "22.04"; empty means detect at plan time
-    machine_arch: str = ""  # e.g. "x86_64"; empty means detect at plan time
-    # Defaults to a private user-cache dir (0700). We avoid /tmp because the
-    # filename is predictable and a sibling local user could race-swap the
-    # .deb between curl and `sudo apt install`, which would land malicious
-    # code as root.
+    ubuntu_version: str = ""
+    machine_arch: str = ""
+    # Private cache dir (0700) avoids the /tmp TOCTOU race on the .deb.
     download_dir: Path = field(
         default_factory=lambda: Path.home() / ".cache" / "benchbox" / "wkhtmltopdf"
     )
@@ -118,8 +93,6 @@ class WkhtmltopdfComponent:
         arch = self.machine_arch
         if not arch:
             arch = platform.machine()
-        # ubuntu_version must be supplied by the caller (detect.OSInfo) — we
-        # don't re-read /etc/os-release here to keep this module side-effect-free.
         if not version:
             raise UnsupportedWkhtmltopdfPlatform(
                 "ubuntu_version must be set before calling plan(); "

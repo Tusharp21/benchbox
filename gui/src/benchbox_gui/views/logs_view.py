@@ -1,15 +1,4 @@
-"""Logs tab — live tail of a benchbox session log.
-
-Polls ``<log_root>/<session>/session.log`` on a QTimer, appends any
-new bytes to a scrolling read-only panel. A session picker lets the user
-browse older sessions — the *current* session is often empty at first
-(nothing has been logged yet), so being able to jump to a historical
-session that actually has content is important for "where did the last
-run go?" debugging.
-
-Not part of the core loop — this is a 1-second filesystem tail, good
-enough for developer-facing visibility without going full QFileSystemWatcher.
-"""
+"""Logs tab — live tail of a benchbox session log."""
 
 from __future__ import annotations
 
@@ -39,7 +28,6 @@ def _log_root() -> Path:
 
 
 def _discover_sessions() -> list[Path]:
-    """Return every session directory on disk, newest first."""
     root = _log_root()
     if not root.is_dir():
         return []
@@ -49,8 +37,6 @@ def _discover_sessions() -> list[Path]:
 
 
 class LogsView(QWidget):
-    """Live tail of a session log, with historical session picker."""
-
     def __init__(self, parent: QWidget | None = None, *, tail_ms: int = DEFAULT_TAIL_MS) -> None:
         super().__init__(parent)
         self._log_path: Path | None = None
@@ -147,16 +133,12 @@ class LogsView(QWidget):
     # --- helpers ------------------------------------------------------
 
     def _reload_sessions(self) -> None:
-        """Refresh the session dropdown and re-select the active session."""
-        # Ensure at least the current session exists so there's always one
-        # row in the picker.
         current = logs.current_session_dir()
         if current is None:
             current = logs.init_session()
 
         sessions = _discover_sessions()
-        # Keep the current session first even if the timestamp sort would
-        # put an older manually-created directory above it.
+        # Pin the current session at the top of the picker.
         if current in sessions:
             sessions.remove(current)
         sessions.insert(0, current)

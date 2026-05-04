@@ -1,13 +1,4 @@
-"""Read metadata from a discovered Frappe bench.
-
-Given a bench path, extract the information the GUI wants to show in its
-detail view: Frappe version, Python version, git branch, the list of
-installed apps (with each app's version + branch), and the list of sites
-(with each site's DB name and installed apps).
-
-All reads are best-effort and never raise on missing/malformed files — a
-half-populated ``BenchInfo`` is more useful than an exception in the UI.
-"""
+"""Read bench metadata from disk."""
 
 from __future__ import annotations
 
@@ -26,8 +17,6 @@ DEFAULT_WEBSERVER_PORT: int = 8000
 
 @dataclass(frozen=True)
 class AppInfo:
-    """One app installed into a bench's ``apps/`` directory."""
-
     name: str
     version: str | None
     git_branch: str | None
@@ -35,23 +24,16 @@ class AppInfo:
 
 @dataclass(frozen=True)
 class SiteInfo:
-    """One site under ``sites/<site_name>/``."""
-
     name: str
     path: Path
     db_name: str | None
     installed_apps: list[str]
-    # Live toggle state read from site_config.json. Both default to
-    # False for new sites — Frappe omits the keys until something
-    # explicitly flips them.
     scheduler_paused: bool = False
     maintenance_mode: bool = False
 
 
 @dataclass(frozen=True)
 class BenchInfo:
-    """Everything we know about a bench, short of live process state."""
-
     path: Path
     frappe_version: str | None
     python_version: str | None
@@ -62,10 +44,7 @@ class BenchInfo:
 
 
 def read_app_version(app_dir: Path) -> str | None:
-    """Extract ``__version__`` from ``<app>/<app>/__init__.py`` via AST.
-
-    Avoids importing the app (which would fail without its deps).
-    """
+    # AST parse so we don't have to import the app (which needs its deps).
     init_file = app_dir / app_dir.name / "__init__.py"
     if not init_file.is_file():
         return None
@@ -88,10 +67,6 @@ def read_app_version(app_dir: Path) -> str | None:
 
 
 def read_git_branch(repo_dir: Path) -> str | None:
-    """Read current branch name from ``<repo>/.git/HEAD``.
-
-    Returns the short commit SHA if HEAD is detached.
-    """
     head = repo_dir / ".git" / "HEAD"
     if not head.is_file():
         return None
@@ -106,7 +81,6 @@ def read_git_branch(repo_dir: Path) -> str | None:
 
 
 def read_python_version(bench_path: Path) -> str | None:
-    """Read the Python version that built ``env/`` from ``env/pyvenv.cfg``."""
     cfg = bench_path / "env" / "pyvenv.cfg"
     if not cfg.is_file():
         return None
@@ -122,7 +96,6 @@ def read_python_version(bench_path: Path) -> str | None:
 
 
 def read_apps(bench_path: Path) -> list[AppInfo]:
-    """List apps in ``bench/apps/``, ordered by ``sites/apps.txt`` if present."""
     apps_dir = bench_path / "apps"
     apps_txt = bench_path / "sites" / "apps.txt"
 
@@ -151,14 +124,6 @@ def read_apps(bench_path: Path) -> list[AppInfo]:
 
 
 def read_webserver_port(bench_path: Path) -> int:
-    """Return the port ``bench start`` will listen on.
-
-    Reads ``webserver_port`` out of ``sites/common_site_config.json``;
-    falls back to :data:`DEFAULT_WEBSERVER_PORT` (8000) if the file is
-    missing or doesn't set that key. Multiple benches on the same box
-    typically each set their own ``webserver_port`` so they don't
-    collide — this is how the GUI gets the right URL to link to.
-    """
     config_path = bench_path / "sites" / "common_site_config.json"
     if not config_path.is_file():
         return DEFAULT_WEBSERVER_PORT
@@ -182,7 +147,6 @@ def read_webserver_port(bench_path: Path) -> int:
 
 
 def read_sites(bench_path: Path) -> list[SiteInfo]:
-    """List sites in ``bench/sites/``, excluding well-known non-site dirs."""
     sites_dir = bench_path / "sites"
     if not sites_dir.is_dir():
         return []
@@ -222,13 +186,7 @@ def read_sites(bench_path: Path) -> list[SiteInfo]:
 
 
 def _truthy(value: object) -> bool:
-    """Coerce a JSON value to bool the way Frappe does in site_config.json.
-
-    Frappe writes these keys as integers (``1``/``0``) but tolerant
-    forks sometimes use booleans or the string forms ``"1"``/``"on"``.
-    Any other shape (None, dict, list, …) is treated as the default
-    "off" state.
-    """
+    # Frappe writes 1/0; some forks use booleans or "yes"/"on" strings.
     if isinstance(value, bool):
         return value
     if isinstance(value, int):
@@ -239,19 +197,8 @@ def _truthy(value: object) -> bool:
 
 
 def _read_installed_apps(site_dir: Path, site_config: dict[str, object]) -> list[str]:
-    """Best-effort list of apps installed on a site, in fallback order.
-
-    1. ``<site>/apps.txt`` — written by older Frappe and some forks.
-    2. ``installed_apps`` key in ``site_config.json`` — some Frappe builds
-       cache it here so the GUI/CLI doesn't need to open the DB.
-
-    The DB itself is the actual source of truth on modern Frappe (the
-    ``installed_apps`` global), but reading it requires running
-    ``bench --site … list-apps`` which is a heavy subprocess we don't
-    want to spawn on every introspect. Returns an empty list when both
-    file-based hints are missing — the SiteTab UI then falls back to
-    the bench-wide apps list to give the user *something* to see.
-    """
+    # Modern Frappe keeps the truth in the DB, but the file-based hints
+    # cover most cases without spawning `bench --site X list-apps`.
     apps_txt = site_dir / "apps.txt"
     if apps_txt.is_file():
         try:
@@ -270,7 +217,6 @@ def _read_installed_apps(site_dir: Path, site_config: dict[str, object]) -> list
 
 
 def introspect(bench_path: Path) -> BenchInfo:
-    """Return a populated ``BenchInfo`` for an existing bench directory."""
     apps = read_apps(bench_path)
     frappe_app = next((a for a in apps if a.name == "frappe"), None)
     return BenchInfo(

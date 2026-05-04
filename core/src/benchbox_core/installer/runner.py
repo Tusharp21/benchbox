@@ -1,9 +1,4 @@
-"""Orchestrator: sequences components through plan → apply.
-
-Short-circuits on the first component that fails — the caller decides how to
-present the failure (CLI prints a diagnostic + log path, GUI surfaces it on
-the failing component's card).
-"""
+"""Sequence components through plan -> apply, stop on first failure."""
 
 from __future__ import annotations
 
@@ -26,21 +21,10 @@ def install(
     runner: CommandRunner | None = None,
     dry_run: bool = False,
 ) -> InstallResult:
-    """Run each component's plan → apply in order; stop at first failure.
-
-    Components are expected to implement ``apply(plan, runner)`` in addition
-    to the ``Component`` protocol's ``plan()``. We use a structural cast here
-    rather than widening the protocol because ``apply`` signatures will grow
-    extra kwargs per component (e.g. MariaDB root password) that the runner
-    shouldn't know about.
-    """
     active_runner = runner if runner is not None else CommandRunner(dry_run=dry_run)
 
     results: list[ComponentResult] = []
     for component in components:
-        # Plan/step/done bookkeeping lands in the file log (DEBUG) but not
-        # on the console — the per-component result table that the CLI/GUI
-        # prints after each component runs already conveys the same info.
         _log.debug("[%s] planning", component.name)
         plan = component.plan()
         runnable = len(plan.runnable_steps)

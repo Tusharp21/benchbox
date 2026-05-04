@@ -1,13 +1,4 @@
-"""Form dialogs for mutating core operations.
-
-Each dialog exposes a ``values()`` method that returns a small dataclass
-the caller passes straight into the matching core call — keeps the GUI
-free of argument-marshalling boilerplate and makes dialogs easy to unit
-test (just pop the form, dial in values, read ``values()``).
-
-All dialogs inherit the global Dracula-inspired QSS; the only per-dialog
-styling is spacing.
-"""
+"""Form dialogs for mutating bench operations."""
 
 from __future__ import annotations
 
@@ -46,22 +37,7 @@ from benchbox_gui.workers import StreamingOpWorker
 
 
 class LiveLogDialog(QDialog):
-    """Dialog with form → live log → close transitions and an embedded worker.
-
-    Subclass contract:
-    - In ``__init__``, build form widgets and pass them through
-      :meth:`set_form_layout` along with a primary-button label.
-    - Override :meth:`_collect_values` to validate the form and return a
-      values dataclass (or ``None`` after showing a warning yourself).
-    - Override :meth:`_build_op` to return a callable taking a
-      ``line_callback`` and running the core operation.
-    - Optionally override :meth:`_success_text` / :meth:`_running_text`
-      for nicer status copy.
-
-    The base owns the log panel, status row, primary/cancel buttons,
-    StreamingOpWorker, and lifecycle. Subclasses stay focused on the
-    form + the op factory.
-    """
+    """Form -> live log -> close. Subclasses provide form + op factory."""
 
     def __init__(
         self,
@@ -119,7 +95,6 @@ class LiveLogDialog(QDialog):
     # --- subclass plumbing -----------------------------------------
 
     def set_form_layout(self, form_layout: QFormLayout) -> None:
-        """Mount the subclass's form layout in place of the placeholder."""
         new_holder = QWidget()
         new_holder.setLayout(form_layout)
         self._root.replaceWidget(self._form_holder, new_holder)
@@ -132,13 +107,9 @@ class LiveLogDialog(QDialog):
     # --- subclass hooks --------------------------------------------
 
     def _collect_values(self) -> object | None:
-        """Validate form input, return a values object, or return None
-        (after the subclass has shown its own QMessageBox)."""
         raise NotImplementedError
 
     def _build_op(self, values: object) -> Callable[[Callable[[str], None]], Any]:
-        """Return a callable that runs the operation, accepting a
-        line_callback to forward to the underlying CommandRunner."""
         raise NotImplementedError
 
     def _success_text(self) -> str:
@@ -150,13 +121,11 @@ class LiveLogDialog(QDialog):
     # --- lifecycle --------------------------------------------------
 
     def values(self) -> object:
-        """The values used to launch the op (set after primary click)."""
         if self._values is None:
             raise RuntimeError("values() called before the operation started")
         return self._values
 
     def _on_primary(self) -> None:
-        # Two roles: launch the op (when no worker yet) or close-as-accepted.
         if self._worker is None:
             self._start_op()
         else:
@@ -187,17 +156,16 @@ class LiveLogDialog(QDialog):
         self._log.appendPlainText(line.rstrip("\n"))
 
     def _on_succeeded(self, _result: object) -> None:
-        self._status.setText(f"✓ {self._success_text()}")
+        self._status.setText(self._success_text())
         self._primary.setText("Close")
         self._primary.setEnabled(True)
         self._cancel.setVisible(False)
 
     def _on_failed(self, exc: object) -> None:
-        self._status.setText(f"✗ Failed: {exc}")
+        self._status.setText(f"Failed: {exc}")
         self._primary.setText("Close")
         self._primary.setEnabled(True)
-        # Failure → primary acts as Reject so the caller skips its
-        # "refresh on success" branch.
+        # On failure the primary button rejects so the caller skips its refresh.
         self._primary.clicked.disconnect()
         self._primary.clicked.connect(self.reject)
         self._cancel.setVisible(False)
@@ -226,7 +194,7 @@ class NewBenchValues:
 
 
 class NewBenchDialog(LiveLogDialog):
-    """Form → live ``bench init`` log → close."""
+    """New bench dialog."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
@@ -319,13 +287,7 @@ class NewSiteValues:
 
 
 class NewSiteDialog(LiveLogDialog):
-    """Form → live ``bench new-site`` log → close.
-
-    ``apps_by_bench`` (optional) maps each bench path to the apps available
-    *in that bench*. When provided, the dialog shows a checkable list of
-    apps. ``db_root_password`` is required and is loaded from the
-    credentials store by the caller — we don't prompt for it here.
-    """
+    """New site dialog."""
 
     def __init__(
         self,
@@ -456,7 +418,7 @@ class GetAppValues:
 
 
 class GetAppDialog(LiveLogDialog):
-    """Form → live ``bench get-app`` log → close."""
+    """Get-app dialog."""
 
     def __init__(
         self,
@@ -542,17 +504,10 @@ class GetAppDialog(LiveLogDialog):
 
 
 def _inject_token(git_url: str, token: str) -> str:
-    """Rewrite an https git URL so it carries a PAT in the userinfo.
-
-    GitHub/GitLab accept ``https://<token>@host/...`` as basic-auth (the
-    token is treated as the username, password empty). SSH URLs (``git@``)
-    and anything non-https are returned unchanged — a token isn't useful
-    there anyway.
-    """
+    # https://<token>@host/... is the basic-auth form GitHub/GitLab accept.
     split = urlsplit(git_url)
     if split.scheme != "https" or not split.hostname:
         return git_url
-    # Drop any existing userinfo (rare, but don't compound).
     host = split.hostname
     netloc = f"{token}@{host}"
     if split.port:
@@ -560,11 +515,7 @@ def _inject_token(git_url: str, token: str) -> str:
     return urlunsplit((split.scheme, netloc, split.path, split.query, split.fragment))
 
 
-# --- NewAppDialog ------------------------------------------------------
-
-# Frappe app name validation: starts with a lowercase letter, then
-# lowercase letters / digits / underscores only. Matches the rule
-# ``bench new-app`` enforces internally.
+# Frappe app name: lowercase letters, digits, underscores; must start with letter.
 _APP_NAME_RE: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -578,7 +529,7 @@ class NewAppValues:
 
 
 class NewAppDialog(LiveLogDialog):
-    """Form → live ``bench new-app`` log → close."""
+    """New app dialog."""
 
     def __init__(
         self,
@@ -694,7 +645,7 @@ class RestoreSiteValues:
 
 
 class RestoreSiteDialog(LiveLogDialog):
-    """Form → live ``bench restore`` log → close."""
+    """Restore site dialog."""
 
     def __init__(
         self,
@@ -862,7 +813,7 @@ class InstallAppValues:
 
 
 class InstallAppDialog(LiveLogDialog):
-    """Form → live ``bench install-app`` log → close."""
+    """Install-app dialog."""
 
     def __init__(
         self,
@@ -975,7 +926,6 @@ class InstallAppDialog(LiveLogDialog):
 
 
 def confirm(parent: QWidget, title: str, message: str, *, destructive: bool = False) -> bool:
-    """Yes/No prompt. ``destructive=True`` makes Yes red and defaults to No."""
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Warning if destructive else QMessageBox.Icon.Question)
     box.setWindowTitle(title)
@@ -991,13 +941,7 @@ def confirm(parent: QWidget, title: str, message: str, *, destructive: bool = Fa
 
 
 class TypedNameConfirmDialog(QDialog):
-    """GitHub-style destructive-action confirm.
-
-    Shows a warning message, asks the user to type the exact ``name`` of
-    the thing they're about to destroy, and keeps the destructive button
-    disabled until the input matches. Forces a real moment of "yes I mean
-    this one" instead of a muscle-memory Yes click.
-    """
+    """Type-the-exact-name confirm gate for destructive actions."""
 
     def __init__(
         self,

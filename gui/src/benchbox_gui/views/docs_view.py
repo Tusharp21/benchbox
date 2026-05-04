@@ -1,15 +1,4 @@
-"""Documentation tab — searchable reference of common bench commands.
-
-Static catalogue of the most-used ``bench``, ``pip``, and helper commands
-keyed by category (bench lifecycle, sites, apps, backups, etc.). Each
-entry has a title, a ready-to-run example, and a short "what it does"
-description. The search box filters by substring across title, example
-and description, so typing half a command (``backup`` → ``bench --site s1
-backup --with-files``) surfaces the full form.
-
-Kept as Python data (``COMMAND_CATALOGUE``) rather than JSON so it's
-easy to extend and type-checks with the rest of the GUI.
-"""
+"""Searchable command reference."""
 
 from __future__ import annotations
 
@@ -282,7 +271,6 @@ COMMAND_CATALOGUE: tuple[CommandEntry, ...] = (
 
 
 class _CommandCard(QFrame):
-    """One command entry as a card: title + example (mono) + description + copy."""
 
     def __init__(self, entry: CommandEntry, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -362,7 +350,6 @@ class _CommandCard(QFrame):
 
 
 class DocumentationView(QWidget):
-    """Searchable reference card list of the bench/benchbox commands."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -474,7 +461,6 @@ class DocumentationView(QWidget):
 
 
 def _unique_categories() -> list[str]:
-    """Category order as first-seen in the catalogue (stable across runs)."""
     seen: list[str] = []
     for entry in COMMAND_CATALOGUE:
         if entry.category not in seen:

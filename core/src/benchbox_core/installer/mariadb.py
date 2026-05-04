@@ -1,16 +1,4 @@
-"""MariaDB component — install server, apply Frappe charset, set root password.
-
-Responsibility boundary: this component installs the ``mariadb-server``
-package, drops a Frappe-compatible config override into
-``/etc/mysql/mariadb.conf.d/``, ensures the service is enabled + running,
-and sets the DB root password to whatever was saved in the credentials
-store. Prompting the user for the password is owned by the CLI / GUI, not
-by core.
-
-Idempotency: each concern (package, config override, service, password) is
-probed independently, so a component that has already run emits only the
-steps whose state has drifted.
-"""
+"""MariaDB component."""
 
 from __future__ import annotations
 
@@ -69,15 +57,6 @@ def _config_override_present(path: Path = CONFIG_OVERRIDE_PATH) -> bool:
 
 @dataclass
 class MariaDBComponent:
-    """Install + configure MariaDB for Frappe local dev.
-
-    ``root_password`` must be supplied by the caller (CLI/GUI) — the component
-    does no prompting. When MariaDB is already installed from a prior setup,
-    the caller is expected to pass the existing password; the component will
-    only run the ``ALTER USER`` step if the service was freshly installed
-    during this apply (tracked via plan state, not by poking the DB).
-    """
-
     name: str = field(default="mariadb", init=False)
     root_password: str = ""
     probe_runner: CommandRunner = field(default_factory=lambda: CommandRunner(quiet=True))

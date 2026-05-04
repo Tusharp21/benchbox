@@ -1,13 +1,4 @@
-"""`benchbox quickstart` — one prompt-set, one confirm, full provision-to-site flow.
-
-Designed for the `curl | bash` install path where the user runs install.sh,
-gets a `benchbox` shim, and wants a Frappe-ready dev environment with a
-working bench + site at the end. We collect every input upfront, show a
-plan, ask one yes/no, then run end-to-end with no further prompts. On
-success we print the bench dir and a per-step success table; on failure
-we print the same table with the failed step marked, so the user can see
-how far we got.
-"""
+"""`benchbox quickstart`: prompt-set then run end-to-end."""
 
 from __future__ import annotations
 

@@ -1,12 +1,4 @@
-"""System readiness checks.
-
-Run before any install action. Each check returns a ``CheckResult``; the
-full report tells the caller whether the host can host a Frappe bench.
-
-Checks are intentionally best-effort — e.g. a port being in use might just
-mean MariaDB is already installed, which we'll figure out later. Preflight
-is advisory; the installer phases themselves do the real gating.
-"""
+"""Preflight readiness checks."""
 
 from __future__ import annotations
 
@@ -88,13 +80,6 @@ def _port_in_use(port: int, host: str = "127.0.0.1") -> bool:
 
 
 def check_port(port: int, *, expected_service: str | None = None) -> CheckResult:
-    """Return pass if ``port`` is free, OR if a specific service owns it.
-
-    ``expected_service`` is the systemd unit whose active state makes a
-    port-in-use condition acceptable (see :data:`EXPECTED_PORT_OWNER`).
-    Without it, any port-in-use is a fail. With it, the check queries
-    ``systemctl is-active <service>``: active → pass, inactive → fail.
-    """
     in_use = _port_in_use(port)
     if not in_use:
         return CheckResult(f"port:{port}", True, f"port {port} is free")
@@ -149,7 +134,6 @@ def run_preflight(
     disk_path: Path | None = None,
     network: bool = True,
 ) -> PreflightReport:
-    """Run every preflight check and return the combined report."""
     checks: list[CheckResult] = [
         check_ram(min_ram_gb),
         check_disk(disk_path, min_free_disk_gb),

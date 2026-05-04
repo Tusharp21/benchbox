@@ -1,3 +1,3 @@
-"""benchbox_cli — Typer-based CLI frontend for benchbox_core."""
+"""benchbox_cli."""
 
 __version__ = "0.1.0"

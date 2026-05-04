@@ -1,9 +1,4 @@
-"""Top stats banner — polls :func:`benchbox_core.stats.snapshot` on a timer.
-
-Also hosts the light/dark theme toggle at the right edge: clicking it
-swaps the active stylesheet, re-tints the sidebar icons, and persists
-the choice via :func:`benchbox_core.preferences.set_theme`.
-"""
+"""Top stats banner with theme toggle."""
 
 from __future__ import annotations
 
@@ -28,15 +23,6 @@ _ACCENT_RED = "#cf222e"  # stays legible against the light theme too.
 
 
 class StatsBanner(QWidget):
-    """Pill-styled horizontal strip — CPU / RAM / disk / services + theme toggle.
-
-    Signals:
-    - ``snapshot_ready(SystemStats)`` — fired on every tick; tests hook here.
-    - ``theme_toggled(str)`` — fired with the NEW theme ("dark"/"light") when
-      the user clicks the sun/moon button. The main window does the actual
-      stylesheet swap.
-    """
-
     snapshot_ready = Signal(object)
     theme_toggled = Signal(str)
 
@@ -78,16 +64,10 @@ class StatsBanner(QWidget):
     # --- theme toggle -------------------------------------------------
 
     def set_theme(self, theme: preferences.Theme) -> None:
-        """Update the local icon + tooltip to match ``theme``.
-
-        Does NOT apply the stylesheet — that's the main window's job on
-        receipt of ``theme_toggled``.
-        """
         self._current_theme = theme
         self._refresh_theme_icon()
 
     def _refresh_theme_icon(self) -> None:
-        # Moon when dark (click → light); sun when light (click → dark).
         icon_name = "moon" if self._current_theme == "dark" else "sun"
         self._theme_btn.setIcon(icon(icon_name, theme=self._current_theme))
         other = "light" if self._current_theme == "dark" else "dark"

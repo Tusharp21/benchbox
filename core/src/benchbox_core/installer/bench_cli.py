@@ -1,14 +1,4 @@
-"""bench CLI installer — provision the ``frappe-bench`` Python package via pipx.
-
-``frappe-bench`` is the tool that runs ``bench init``, ``bench new-site``,
-and every per-bench operation. We install it through pipx so that:
-- it gets its own isolated venv (avoids Ubuntu 22.04+ PEP 668 friction)
-- the ``bench`` binary lands on the user's PATH automatically
-- upgrades stay independent of the system Python
-
-Steps are emitted only if their state has drifted, matching the idempotent
-plan/apply contract every other installer component follows.
-"""
+"""bench CLI component — installs frappe-bench via pipx."""
 
 from __future__ import annotations
 
@@ -35,7 +25,6 @@ def _dpkg_installed(runner: CommandRunner, package: str) -> bool:
 
 
 def _pipx_has_bench(runner: CommandRunner) -> bool:
-    """Return True iff ``pipx list --json`` reports frappe-bench as installed."""
     result = runner.run(["pipx", "list", "--json"], check=False)
     if not result.executed or result.returncode != 0:
         return False
@@ -51,7 +40,6 @@ def _pipx_has_bench(runner: CommandRunner) -> bool:
 
 @dataclass
 class BenchCliComponent:
-    """Install pipx (if missing) and then ``frappe-bench`` through it."""
 
     name: str = field(default="bench-cli", init=False)
     probe_runner: CommandRunner = field(default_factory=lambda: CommandRunner(quiet=True))

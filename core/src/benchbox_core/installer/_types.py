@@ -1,9 +1,4 @@
-"""Shared dataclasses and the ``Component`` protocol for the installer.
-
-Kept deliberately small: every component speaks the same ``plan()`` /
-``apply()`` shape so the runner, the CLI, and eventually the Tauri GUI can
-all consume progress without knowing which component produced it.
-"""
+"""Component protocol + result dataclasses."""
 
 from __future__ import annotations
 
@@ -13,16 +8,6 @@ from typing import Protocol, runtime_checkable
 
 @dataclass(frozen=True)
 class Step:
-    """A single unit of work inside a component.
-
-    ``command`` is the argv to execute. ``stdin``, if set, is piped to the
-    subprocess — used for writing config files via ``sudo tee`` and for
-    sending SQL to ``mysql`` (which keeps passwords out of ``ps aux``).
-    If ``skip_reason`` is set, the step is already satisfied (e.g. package
-    already installed) and ``apply()`` will record it as skipped instead of
-    running the command.
-    """
-
     description: str
     command: tuple[str, ...]
     stdin: str | None = None
@@ -31,8 +16,6 @@ class Step:
 
 @dataclass(frozen=True)
 class ComponentPlan:
-    """What a component *would* do. Pure, no side effects."""
-
     component: str
     steps: tuple[Step, ...]
 
@@ -87,13 +70,6 @@ class InstallResult:
 
 @runtime_checkable
 class Component(Protocol):
-    """Everything the runner needs from a component.
-
-    ``name`` is a stable short identifier (``"apt"``, ``"mariadb"``). ``plan``
-    is expected to be cheap and side-effect-free — the CLI will call it to
-    show a dry-run preview.
-    """
-
     name: str
 
     def plan(self) -> ComponentPlan: ...

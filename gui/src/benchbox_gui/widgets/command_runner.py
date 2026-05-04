@@ -1,17 +1,4 @@
-"""Per-bench dev-command runner — the second pane of the bench terminal.
-
-A QPlainTextEdit on top shows merged stdout/stderr from whatever command
-is in flight; a row of quick-chip buttons + a free-form input line let the
-user fire ``bench`` commands inside the bench's working directory. Each
-command runs through :class:`PySide6.QtCore.QProcess` with the same
-nvm-bootstrap shell used for ``bench start``, so Frappe sees Node 18 even
-when the system PATH only has Node 12.
-
-Owns at most one in-flight :class:`QProcess` at a time; ``set_bench``
-swaps the working directory and clears the buffer but never kills a
-running command. ``shutdown`` is the cleanup hook the main window calls
-on quit so a half-finished ``bench migrate`` doesn't outlive the GUI.
-"""
+"""Per-bench dev-command runner."""
 
 from __future__ import annotations
 
@@ -32,9 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-# Same nvm bootstrap as the long-running bench-start path. We exec the
-# user's command through bash so PATH is set up identically; otherwise
-# yarn (and bench's pip-resolver) would pick up Node 12 from /usr/bin.
+# Source nvm before exec so Frappe sees Node 18 even when /usr/bin/node
+# is the apt-shipped Node 12.
 _NVM_BOOTSTRAP_PREFIX: str = (
     'if [ -s "$HOME/.nvm/nvm.sh" ]; then '
     'export NVM_DIR="$HOME/.nvm"; '
@@ -43,11 +29,6 @@ _NVM_BOOTSTRAP_PREFIX: str = (
     "exec "
 )
 
-# Quick-action buttons: (label, command-builder). The builder gets the
-# selected site name (may be ``""`` when no site is selected) and returns
-# the bench command to drop into the input field. We pre-fill rather than
-# fire-and-forget so the user can review/edit the command first — bench
-# mutations are heavy and unwinding a wrong one is annoying.
 QuickAction = tuple[str, Callable[[str], str]]
 
 DEFAULT_QUICK_ACTIONS: tuple[QuickAction, ...] = (
@@ -74,20 +55,10 @@ DEFAULT_QUICK_ACTIONS: tuple[QuickAction, ...] = (
     ("Help", lambda _site: "bench --help"),
 )
 
-# Cap the runner's history; long pip resolves can spew thousands of lines.
 MAX_LOG_BLOCKS: int = 5000
 
 
 class BenchCommandRunner(QWidget):
-    """Editable command line + log pane scoped to one bench directory.
-
-    Signals:
-        command_started(str): emitted with the literal command line just
-            before the process spawns. Useful for tests.
-        command_finished(int): emitted with the exit code after the
-            process exits. -1 indicates the process failed to spawn.
-    """
-
     command_started = Signal(str)
     command_finished = Signal(int)
 
@@ -101,24 +72,13 @@ class BenchCommandRunner(QWidget):
         super().__init__(parent)
         self._bench_path: Path | None = None
         self._site_names: list[str] = []
-        # When set, the dropdown is hidden and every chip-builder receives
-        # this site as its argument. The tab's label already tells the user
-        # which site they're acting on, so a redundant dropdown would just
-        # be noise. Free-form input still runs verbatim.
         self._locked_site: str | None = locked_site
-        # SiteTab has its own action grid (Migrate / Clear cache / etc.)
-        # — chips would duplicate those buttons, so callers that already
-        # render those actions elsewhere set ``show_chips=False`` to keep
-        # the runner focused on free-form input.
         self._show_chips: bool = show_chips
-        # Lazy-import keeps the widget testable without importing QtCore
-        # at module load when only the pure-Python helpers are used.
         from PySide6.QtCore import QProcess
 
         self._process_cls = QProcess
         self._process: QProcess | None = None
 
-        # ----- top row: site selector + status text ------------------
         site_label = QLabel("site:")
         site_label.setProperty("role", "dim")
         self._site_label = site_label
@@ -140,10 +100,6 @@ class BenchCommandRunner(QWidget):
         site_row.addStretch(1)
         site_row.addWidget(self._status)
 
-        # ----- quick chip row ----------------------------------------
-        # Skipped entirely (rather than just hidden) when ``show_chips``
-        # is False so the row doesn't even reserve vertical space — the
-        # SiteTab embedding wants the runner as compact as possible.
         self._chip_row = QHBoxLayout()
         self._chip_row.setContentsMargins(0, 0, 0, 0)
         self._chip_row.setSpacing(6)
@@ -156,7 +112,6 @@ class BenchCommandRunner(QWidget):
                 self._chip_row.addWidget(btn)
             self._chip_row.addStretch(1)
 
-        # ----- input + run/stop --------------------------------------
         self._input = QLineEdit()
         self._input.setPlaceholderText("bench …  (Enter to run)")
         self._input.returnPressed.connect(self._on_run_clicked)
@@ -185,7 +140,6 @@ class BenchCommandRunner(QWidget):
         input_row.addWidget(self._cancel_btn)
         input_row.addWidget(clear_btn)
 
-        # ----- output pane -------------------------------------------
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
         self._log.setMaximumBlockCount(MAX_LOG_BLOCKS)
@@ -197,7 +151,6 @@ class BenchCommandRunner(QWidget):
         )
         self._log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # ----- assembly ----------------------------------------------
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -207,20 +160,9 @@ class BenchCommandRunner(QWidget):
         layout.addLayout(input_row)
         layout.addWidget(self._log, 1)
 
-        # Start disabled — set_bench(path) re-enables once we know which
-        # working directory to spawn into.
         self._set_enabled_for_bench(False)
 
-    # --- public API ---------------------------------------------------
-
     def set_bench(self, path: Path | None, site_names: list[str] | None = None) -> None:
-        """Switch which bench this runner targets.
-
-        Does *not* kill an in-flight process; the user can navigate away
-        from a bench while ``bench update`` is running and come back later
-        to see the result. Buffer is cleared per-bench to keep the runner
-        scoped to whichever bench the user is actively looking at.
-        """
         new_path = path.resolve() if path is not None else None
         bench_changed = new_path != self._bench_path
         self._bench_path = new_path
@@ -250,7 +192,6 @@ class BenchCommandRunner(QWidget):
                 widget.setEnabled(has_bench)
 
     def shutdown(self) -> None:
-        """Kill any in-flight command — called by the main window on quit."""
         if self._process is None:
             return
         self._process.terminate()
@@ -263,24 +204,10 @@ class BenchCommandRunner(QWidget):
         return self._process is not None
 
     def prefill(self, command: str) -> None:
-        """Drop ``command`` into the input field and focus it.
-
-        Used by the per-site action grid: each click here pre-fills a
-        ``bench --site …`` invocation rather than firing it, so the
-        user can review/edit before pressing Enter.
-        """
         self._input.setText(command)
         self._input.setFocus()
 
     def run_command(self, real_command: str, *, display: str | None = None) -> bool:
-        """Run ``real_command`` immediately, optionally echoing ``display`` instead.
-
-        Returns ``False`` if the runner is busy or has no bench bound;
-        ``True`` if the command was spawned. Display masking is the
-        hook for commands that carry secrets (the saved MariaDB root
-        password lands in ``bench drop-site --root-password``); the
-        log shows the masked form, but the real command runs verbatim.
-        """
         if self._bench_path is None or self._process is not None:
             return False
         echoed = display if display is not None else real_command
@@ -296,8 +223,6 @@ class BenchCommandRunner(QWidget):
         self.command_started.emit(echoed)
         process.start("bash", ["-c", _NVM_BOOTSTRAP_PREFIX + real_command])
         return True
-
-    # --- chip / input plumbing ---------------------------------------
 
     def _selected_site(self) -> str:
         if self._locked_site is not None:
@@ -327,8 +252,6 @@ class BenchCommandRunner(QWidget):
     def _clear_log(self) -> None:
         self._log.clear()
 
-    # --- subprocess management ---------------------------------------
-
     def _spawn(self, command: str) -> None:
         assert self._bench_path is not None
         process = self._process_cls(self)
@@ -342,8 +265,6 @@ class BenchCommandRunner(QWidget):
         self._set_busy_ui(True)
         self._append(f"$ {command}\n")
         self.command_started.emit(command)
-        # bash -c so the nvm bootstrap runs before bench, and so the user
-        # can pipe / chain commands naturally.
         process.start("bash", ["-c", _NVM_BOOTSTRAP_PREFIX + command])
 
     def _drain_output(self) -> None:
@@ -356,15 +277,12 @@ class BenchCommandRunner(QWidget):
         self._append(text)
 
     def _on_finished(self, exit_code: int, _exit_status: object) -> None:
-        # _exit_status is a QProcess.ExitStatus; we report exit_code only.
         self._append(f"\n[exited with code {exit_code}]\n")
         self._process = None
         self._set_busy_ui(False)
         self.command_finished.emit(exit_code)
 
     def _on_error(self, _err: object) -> None:
-        # readyRead+finished still fire on most errors, but a missing
-        # binary races ahead — make sure we always re-enable the UI.
         if self._process is None:
             return
         self._append("\n[failed to launch command]\n")
@@ -379,8 +297,6 @@ class BenchCommandRunner(QWidget):
         self._status.setText("running…" if busy else "idle")
 
     def _append(self, text: str) -> None:
-        # appendPlainText auto-adds a newline; insertPlainText doesn't.
-        # Process output already carries its own newlines, so insert.
         cursor = self._log.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
         cursor.insertText(text)
