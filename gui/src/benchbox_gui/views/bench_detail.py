@@ -177,10 +177,12 @@ class BenchDetailView(QWidget):
 
         self._dock.set_bench(path, webserver_port=info.webserver_port)
 
-        # Apps tab — rebuild card grid in place.
+        # Apps tab — rebuild card grid in place. Skip the bench-path
+        # label on each card; every app here belongs to the same bench
+        # so the path would just repeat itself ``len(info.apps)`` times.
         app_cards: list[QWidget] = []
         for app in info.apps:
-            card = AppCard(path, app)
+            card = AppCard(path, app, show_bench_path=False)
             card.install_requested.connect(self._on_install_from_app_card)
             card.uninstall_requested.connect(self._on_uninstall_requested)
             card.remove_requested.connect(self._on_remove_requested)

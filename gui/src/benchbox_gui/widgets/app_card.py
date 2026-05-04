@@ -1,4 +1,21 @@
-"""One card per (bench, app) in the Apps tab."""
+"""One card per (bench, app) — used by the Apps tab and global Apps page.
+
+Layout (top → bottom):
+
+- Title row: app name (large) + version pill + branch pill
+- Optional bench-path line (global Apps page only — on the per-bench
+  detail view every card belongs to the same bench, so the path would
+  just repeat itself)
+- Action row: 3 equal-width buttons — Install on site, Uninstall from
+  site, Remove from bench. The card no longer crams the buttons next
+  to the title, so the card's natural width drops and the parent
+  CardGrid lays out 2-3 cards per row at typical window sizes.
+
+``frappe`` is treated as non-removable; uninstall + remove are disabled
+with a tooltip explaining why. Install stays enabled because Frappe is
+implicitly installed when the site is created — the install dialog
+short-circuits if the app is already there.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +28,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -28,19 +46,12 @@ class _Badge(QLabel):
 class AppCard(QFrame):
     """Renders an :class:`AppInfo` + its bench path with per-app actions.
 
-    Three actions:
-    - **Install on site** — ``install_requested(bench, app)`` — caller opens
-      a site picker (preselected to this app + bench) and spawns
-      ``core.app.install_app``.
-    - **Uninstall from site** — ``uninstall_requested(bench, app)`` — caller
-      opens a site picker before spawning ``core.app.uninstall_app``.
-    - **Remove from bench** — ``remove_requested(bench, app)`` — caller gates
-      on a typed-name confirm, then spawns ``core.app.remove_app``.
+    Three actions emitted as signals; the parent page sequences the
+    confirm dialogs and operation workers.
 
-    ``frappe`` is treated as non-removable: uninstall + remove become
-    disabled with a tooltip explaining why. Install stays enabled because
-    Frappe is always implicitly installed when the site is created — the
-    dialog will skip it if it's already there.
+    - ``install_requested(bench, app)``
+    - ``uninstall_requested(bench, app)``
+    - ``remove_requested(bench, app)``
     """
 
     install_requested = Signal(Path, str)
@@ -54,29 +65,45 @@ class AppCard(QFrame):
         parent: QWidget | None = None,
         *,
         read_only: bool = False,
+        show_bench_path: bool = True,
     ) -> None:
         super().__init__(parent)
         self._bench_path = bench_path
         self._app_name = app.name
         self.setObjectName("AppCard")
         self.setFrameShape(QFrame.Shape.NoFrame)
+        # Cards expand horizontally to fill the column they're placed
+        # in; vertically they stay at their hint height so the grid
+        # rows align cleanly.
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         name = QLabel(app.name)
         name.setProperty("role", "h2")
 
-        bench_path_label = QLabel(str(bench_path))
-        bench_path_label.setProperty("role", "dim")
-        bench_path_label.setWordWrap(True)
+        # Version + branch pills sit next to the name. Lighter visual
+        # weight than the buttons so the eye lands on the actions, not
+        # the metadata.
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        title_row.addWidget(name)
+        if app.version:
+            title_row.addWidget(_Badge(f"v{app.version}", accent=True))
+        if app.git_branch:
+            title_row.addWidget(_Badge(app.git_branch))
+        title_row.addStretch(1)
 
-        install_btn = QPushButton("Install on site…")
+        # ---- action row --------------------------------------------
+        install_btn = QPushButton("Install on site")
         install_btn.setProperty("role", "primary")
         install_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        install_btn.setMinimumHeight(32)
         install_btn.clicked.connect(
             lambda: self.install_requested.emit(self._bench_path, self._app_name)
         )
 
-        uninstall_btn = QPushButton("Uninstall from site…")
+        uninstall_btn = QPushButton("Uninstall from site")
         uninstall_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        uninstall_btn.setMinimumHeight(32)
         uninstall_btn.clicked.connect(
             lambda: self.uninstall_requested.emit(self._bench_path, self._app_name)
         )
@@ -84,6 +111,7 @@ class AppCard(QFrame):
         remove_btn = QPushButton("Remove from bench")
         remove_btn.setProperty("role", "danger")
         remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        remove_btn.setMinimumHeight(32)
         remove_btn.clicked.connect(
             lambda: self.remove_requested.emit(self._bench_path, self._app_name)
         )
@@ -98,34 +126,27 @@ class AppCard(QFrame):
 
         actions = QHBoxLayout()
         actions.setSpacing(6)
-        actions.addWidget(install_btn)
-        actions.addWidget(uninstall_btn)
-        actions.addWidget(remove_btn)
+        # Equal column-weight so the row reads as a button matrix and
+        # the buttons align across cards in the grid.
+        actions.addWidget(install_btn, 1)
+        actions.addWidget(uninstall_btn, 1)
+        actions.addWidget(remove_btn, 1)
 
         if read_only:
             install_btn.setVisible(False)
             uninstall_btn.setVisible(False)
             remove_btn.setVisible(False)
 
-        title_col = QVBoxLayout()
-        title_col.setSpacing(2)
-        title_col.addWidget(name)
-        title_col.addWidget(bench_path_label)
-
-        title_row = QHBoxLayout()
-        title_row.addLayout(title_col, 1)
-        title_row.addLayout(actions)
-
-        badges = QHBoxLayout()
-        badges.setSpacing(6)
-        if app.version:
-            badges.addWidget(_Badge(f"v{app.version}", accent=True))
-        if app.git_branch:
-            badges.addWidget(_Badge(app.git_branch))
-        badges.addStretch(1)
-
+        # ---- assembly ----------------------------------------------
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(10)
         root.addLayout(title_row)
-        root.addLayout(badges)
+
+        if show_bench_path:
+            bench_path_label = QLabel(str(bench_path))
+            bench_path_label.setProperty("role", "dim")
+            bench_path_label.setWordWrap(True)
+            root.addWidget(bench_path_label)
+
+        root.addLayout(actions)
