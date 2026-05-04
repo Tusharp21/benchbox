@@ -96,6 +96,7 @@ class BenchCommandRunner(QWidget):
         parent: QWidget | None = None,
         *,
         locked_site: str | None = None,
+        show_chips: bool = True,
     ) -> None:
         super().__init__(parent)
         self._bench_path: Path | None = None
@@ -105,6 +106,11 @@ class BenchCommandRunner(QWidget):
         # which site they're acting on, so a redundant dropdown would just
         # be noise. Free-form input still runs verbatim.
         self._locked_site: str | None = locked_site
+        # SiteTab has its own action grid (Migrate / Clear cache / etc.)
+        # — chips would duplicate those buttons, so callers that already
+        # render those actions elsewhere set ``show_chips=False`` to keep
+        # the runner focused on free-form input.
+        self._show_chips: bool = show_chips
         # Lazy-import keeps the widget testable without importing QtCore
         # at module load when only the pure-Python helpers are used.
         from PySide6.QtCore import QProcess
@@ -135,16 +141,20 @@ class BenchCommandRunner(QWidget):
         site_row.addWidget(self._status)
 
         # ----- quick chip row ----------------------------------------
+        # Skipped entirely (rather than just hidden) when ``show_chips``
+        # is False so the row doesn't even reserve vertical space — the
+        # SiteTab embedding wants the runner as compact as possible.
         self._chip_row = QHBoxLayout()
         self._chip_row.setContentsMargins(0, 0, 0, 0)
         self._chip_row.setSpacing(6)
-        for label, builder in DEFAULT_QUICK_ACTIONS:
-            btn = QPushButton(label)
-            btn.setProperty("role", "ghost")
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda _checked=False, b=builder: self._fill_from_chip(b))
-            self._chip_row.addWidget(btn)
-        self._chip_row.addStretch(1)
+        if show_chips:
+            for label, builder in DEFAULT_QUICK_ACTIONS:
+                btn = QPushButton(label)
+                btn.setProperty("role", "ghost")
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda _checked=False, b=builder: self._fill_from_chip(b))
+                self._chip_row.addWidget(btn)
+            self._chip_row.addStretch(1)
 
         # ----- input + run/stop --------------------------------------
         self._input = QLineEdit()
@@ -192,7 +202,8 @@ class BenchCommandRunner(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         layout.addLayout(site_row)
-        layout.addLayout(self._chip_row)
+        if show_chips:
+            layout.addLayout(self._chip_row)
         layout.addLayout(input_row)
         layout.addWidget(self._log, 1)
 
