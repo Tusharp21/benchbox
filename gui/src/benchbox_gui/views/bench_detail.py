@@ -85,6 +85,7 @@ class BenchDetailView(QWidget):
 
         # ---- main tab strip ----------------------------------------
         self._tabs = QTabWidget()
+        self._tabs.setObjectName("BenchDetailTabs")
         self._tabs.setMovable(False)
         self._tabs.setTabsClosable(False)
         self._tabs.setUsesScrollButtons(True)

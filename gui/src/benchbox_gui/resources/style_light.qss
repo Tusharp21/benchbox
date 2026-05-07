@@ -104,29 +104,99 @@ QFrame#FilterBar QLabel {
     background: transparent;
 }
 
-/* ---------- bench section ---------- */
+/* ---------- bench detail tabs ---------- */
 
-QFrame#BenchSection {
-    background: transparent;
+QTabWidget#BenchDetailTabs::pane {
+    border: none;
+    background-color: #ffffff;
+    top: -1px;
 }
-QFrame#BenchSectionHeader {
+QTabWidget#BenchDetailTabs > QTabBar {
+    background: transparent;
+    qproperty-drawBase: 0;
+}
+QTabWidget#BenchDetailTabs > QTabBar::tab {
+    background: transparent;
+    color: #656d76;
+    padding: 10px 20px;
+    margin-right: 2px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 11pt;
+    font-weight: 500;
+    min-width: 96px;
+}
+QTabWidget#BenchDetailTabs > QTabBar::tab:hover {
+    color: #1f2328;
+    background-color: #f6f8fa;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+QTabWidget#BenchDetailTabs > QTabBar::tab:selected {
+    color: #6f42c1;
+    font-weight: 700;
+    border-bottom: 2px solid #6f42c1;
+    background-color: #f6f8fa;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+
+/* ---------- KPI cards ---------- */
+
+QFrame#KpiCard {
     background-color: #ffffff;
     border: 1px solid #d0d7de;
-    border-left: 3px solid #6f42c1;
-    border-radius: 8px;
+    border-radius: 12px;
 }
-QFrame#BenchSectionHeader QLabel {
+QFrame#KpiCard QLabel {
     background: transparent;
 }
-QToolButton[role="section-toggle"] {
-    background: transparent;
-    color: #6f42c1;
+QLabel[role="kpi-value"] {
+    font-size: 26pt;
+    font-weight: 700;
+    color: #1f2328;
+}
+QLabel[role="kpi-label"] {
+    font-size: 9pt;
+    font-weight: 600;
+    letter-spacing: 1.4px;
+    color: #656d76;
+}
+
+/* ---------- bench summary card ---------- */
+
+QFrame#BenchSummaryCard {
+    background-color: #ffffff;
+    border: 1px solid #d0d7de;
+    border-radius: 12px;
+}
+QFrame#BenchSummaryCard:hover {
+    border: 1px solid #8250df;
+}
+QFrame#BenchSummaryHeader {
+    background-color: #f6f8fa;
     border: none;
-    padding: 0px 4px;
-    font-size: 14pt;
+    border-bottom: 1px solid #d0d7de;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
 }
-QToolButton[role="section-toggle"]:hover {
-    color: #8a5cd6;
+QFrame#BenchSummaryHeader QLabel {
+    background: transparent;
+}
+QFrame#ItemRow {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #eaeef2;
+}
+QFrame#ItemRow:hover {
+    background-color: #f6f8fa;
+}
+QFrame#ItemRow QLabel {
+    background: transparent;
+}
+QLabel[role="row-title"] {
+    font-weight: 600;
+    color: #1f2328;
 }
 
 /* ---------- cards ---------- */

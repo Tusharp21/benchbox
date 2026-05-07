@@ -1,4 +1,4 @@
-"""Sites tab — read-only list of every site, grouped by bench."""
+"""Sites tab — dashboard view: KPIs + per-bench summary cards."""
 
 from __future__ import annotations
 
@@ -19,8 +19,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from benchbox_gui.widgets.bench_section import BenchSection
-from benchbox_gui.widgets.site_card import SiteCard
+from benchbox_gui.widgets.bench_summary_card import BenchSummaryCard, SiteRow
+from benchbox_gui.widgets.card_grid import CardGrid
+from benchbox_gui.widgets.kpi_card import KpiCard
 
 ALL_BENCHES = "__all__"
 
@@ -43,8 +44,8 @@ class SitesView(QWidget):
         title = QLabel("Sites")
         title.setProperty("role", "h1")
         subtitle = QLabel(
-            "Sites grouped by bench. "
-            "Open a bench from the Benches tab to create, drop, or restore."
+            "All sites grouped by bench. Open a bench from the Benches tab "
+            "to create, drop, or restore a site."
         )
         subtitle.setProperty("role", "dim")
         subtitle.setWordWrap(True)
@@ -62,7 +63,18 @@ class SitesView(QWidget):
         header.addLayout(header_text, 1)
         header.addWidget(refresh, 0, Qt.AlignmentFlag.AlignTop)
 
-        # Filter toolbar — search box + bench dropdown.
+        self._kpi_benches = KpiCard("Benches", value="0", accent="#bd93f9")
+        self._kpi_sites = KpiCard("Sites", value="0", accent="#8be9fd")
+        self._kpi_paused = KpiCard("Scheduler paused", value="0", accent="#f1fa8c")
+        self._kpi_maint = KpiCard("Maintenance on", value="0", accent="#ff5555")
+
+        kpi_strip = QHBoxLayout()
+        kpi_strip.setSpacing(12)
+        kpi_strip.addWidget(self._kpi_benches, 1)
+        kpi_strip.addWidget(self._kpi_sites, 1)
+        kpi_strip.addWidget(self._kpi_paused, 1)
+        kpi_strip.addWidget(self._kpi_maint, 1)
+
         filter_label = QLabel("Filter:")
         filter_label.setProperty("role", "dim")
 
@@ -89,16 +101,10 @@ class SitesView(QWidget):
         filter_layout.addWidget(bench_label)
         filter_layout.addWidget(self._bench_combo)
 
-        # Body — vertical stack of BenchSection widgets inside a scroll area.
-        self._sections_host = QWidget()
-        self._sections_layout = QVBoxLayout(self._sections_host)
-        self._sections_layout.setContentsMargins(0, 0, 0, 0)
-        self._sections_layout.setSpacing(14)
-        self._sections_layout.addStretch(1)
-
+        self._grid = CardGrid()
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
-        self._scroll.setWidget(self._sections_host)
+        self._scroll.setWidget(self._grid)
         self._scroll.setFrameShape(self._scroll.Shape.NoFrame)
 
         self._empty = QLabel()
@@ -109,6 +115,7 @@ class SitesView(QWidget):
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(14)
         root.addLayout(header)
+        root.addLayout(kpi_strip)
         root.addWidget(self._filter_bar)
         root.addWidget(self._scroll, 1)
         root.addWidget(self._empty)
@@ -117,7 +124,7 @@ class SitesView(QWidget):
 
     @property
     def card_count(self) -> int:
-        return sum(s.card_count() for s in self._sections())
+        return sum(c.row_count() for c in self._summary_cards())
 
     def refresh(self) -> None:
         bench_cache = {p: introspect.introspect(p) for p in discovery.discover_benches()}
@@ -127,11 +134,20 @@ class SitesView(QWidget):
             for info in bench_cache.values()
             for site in info.sites
         ]
+        self._refresh_kpis()
         self._refresh_bench_combo()
         self._render()
 
+    def _summary_cards(self) -> list[BenchSummaryCard]:
+        return self._grid.findChildren(BenchSummaryCard)
+
+    def _refresh_kpis(self) -> None:
+        self._kpi_benches.set_value(len(self._bench_paths))
+        self._kpi_sites.set_value(len(self._rows))
+        self._kpi_paused.set_value(sum(1 for r in self._rows if r.site.scheduler_paused))
+        self._kpi_maint.set_value(sum(1 for r in self._rows if r.site.maintenance_mode))
+
     def _refresh_bench_combo(self) -> None:
-        # Preserve selection across refresh by remembering the current data.
         current = self._bench_filter
         self._bench_combo.blockSignals(True)
         self._bench_combo.clear()
@@ -151,32 +167,13 @@ class SitesView(QWidget):
         self._bench_filter = self._bench_combo.currentData() or ALL_BENCHES
         self._render()
 
-    def _sections(self) -> list[BenchSection]:
-        out: list[BenchSection] = []
-        for i in range(self._sections_layout.count()):
-            item = self._sections_layout.itemAt(i)
-            if item is None:
-                continue
-            w = item.widget()
-            if isinstance(w, BenchSection):
-                out.append(w)
-        return out
-
-    def _clear_sections(self) -> None:
-        # Walk backwards so removals don't shift indices.
-        for i in reversed(range(self._sections_layout.count())):
-            item = self._sections_layout.itemAt(i)
-            if item is None:
-                continue
-            w = item.widget()
-            if isinstance(w, BenchSection):
-                self._sections_layout.takeAt(i)
-                w.setParent(None)
-                w.deleteLater()
+    def _matches(self, row: _Row) -> bool:
+        if not self._filter:
+            return True
+        haystack = f"{row.site.name}\n{row.bench_path}".lower()
+        return all(token in haystack for token in self._filter.split())
 
     def _render(self) -> None:
-        self._clear_sections()
-
         rows_by_bench: dict[Path, list[_Row]] = {p: [] for p in self._bench_paths}
         for row in self._rows:
             if not self._matches(row):
@@ -185,24 +182,20 @@ class SitesView(QWidget):
                 continue
             rows_by_bench.setdefault(row.bench_path, []).append(row)
 
-        # Insert sections before the trailing stretch (kept at end).
-        insert_at = max(0, self._sections_layout.count() - 1)
+        cards: list[QWidget] = []
         total_visible = 0
         for bench_path in self._bench_paths:
             if self._bench_filter != ALL_BENCHES and str(bench_path) != self._bench_filter:
                 continue
-            rows = rows_by_bench.get(bench_path, [])
-            if not rows and self._filter:
-                # Hide benches with no matches when text-filtering.
+            site_rows = rows_by_bench.get(bench_path, [])
+            if not site_rows and self._filter:
                 continue
-            section = BenchSection(bench_path, item_label="site")
-            cards: list[QWidget] = [
-                SiteCard(r.bench_path, r.site, read_only=True) for r in rows
-            ]
-            section.set_cards(cards)
-            self._sections_layout.insertWidget(insert_at, section)
-            insert_at += 1
-            total_visible += len(rows)
+            card = BenchSummaryCard(bench_path, item_label="site")
+            card.set_rows([SiteRow(r.site) for r in site_rows])
+            cards.append(card)
+            total_visible += len(site_rows)
+
+        self._grid.set_cards(cards)
 
         has_any = bool(self._rows)
         has_match = total_visible > 0
@@ -223,9 +216,3 @@ class SitesView(QWidget):
                 "<p style='color:#a9a9c4;'>Try a different search term, switch bench, "
                 "or clear the filters.</p>"
             )
-
-    def _matches(self, row: _Row) -> bool:
-        if not self._filter:
-            return True
-        haystack = f"{row.site.name}\n{row.bench_path}".lower()
-        return all(token in haystack for token in self._filter.split())

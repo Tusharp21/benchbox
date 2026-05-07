@@ -52,14 +52,6 @@ class BenchDetailHeader(QWidget):
         self._name.setWordWrap(True)
         self._name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
-        # word-wrap so deep ~/projects/... paths don't push the page
-        # off the right edge.
-        self._path = QLabel("")
-        self._path.setProperty("role", "kbd")
-        self._path.setWordWrap(True)
-        self._path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self._path.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-
         self._frappe_pill = _Pill("frappe", "—")
         self._python_pill = _Pill("python", "—")
         self._branch_pill = _Pill("branch", "—")
@@ -104,9 +96,8 @@ class BenchDetailHeader(QWidget):
 
         title_block = QVBoxLayout()
         title_block.setContentsMargins(0, 0, 0, 0)
-        title_block.setSpacing(2)
+        title_block.setSpacing(4)
         title_block.addWidget(self._name)
-        title_block.addWidget(self._path)
         title_block.addLayout(pill_row)
 
         layout = QVBoxLayout(self)
@@ -128,7 +119,6 @@ class BenchDetailHeader(QWidget):
     ) -> None:
         bench_path = Path(path)
         self._name.setText(bench_path.name or str(bench_path))
-        self._path.setText(str(bench_path))
         self._frappe_pill.setText(self._format_pill_text("frappe", frappe_version))
         self._python_pill.setText(self._format_pill_text("python", python_version))
         self._branch_pill.setText(self._format_pill_text("branch", git_branch))

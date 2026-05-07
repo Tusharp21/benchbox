@@ -10,6 +10,7 @@ from pytestqt.qtbot import QtBot
 
 from benchbox_gui.views.apps import AppsView
 from benchbox_gui.widgets.app_card import FRAPPE_APP_NAME, AppCard
+from benchbox_gui.widgets.bench_summary_card import AppRow, BenchSummaryCard
 
 
 def _make_bench_with_app(
@@ -99,9 +100,11 @@ def test_apps_view_renders_one_card_per_app(
 
     # 3 apps expected: frappe + erpnext + hrms.
     assert view.card_count == 3
-    cards = view.findChildren(AppCard)
-    app_names = {c._app_name for c in cards}  # noqa: SLF001
-    assert app_names == {"frappe", "erpnext", "hrms"}
+    summary_cards = view.findChildren(BenchSummaryCard)
+    assert len(summary_cards) == 1
+    assert summary_cards[0].row_count() == 3
+    app_rows = view.findChildren(AppRow)
+    assert len(app_rows) == 3
 
 
 def test_apps_view_empty_state(qtbot: QtBot, monkeypatch: pytest.MonkeyPatch) -> None:

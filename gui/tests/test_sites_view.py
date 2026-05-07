@@ -10,6 +10,7 @@ from benchbox_core.introspect import SiteInfo
 from pytestqt.qtbot import QtBot
 
 from benchbox_gui.views.sites import SitesView
+from benchbox_gui.widgets.bench_summary_card import BenchSummaryCard, SiteRow
 from benchbox_gui.widgets.dialogs import TypedNameConfirmDialog
 from benchbox_gui.widgets.site_card import SiteCard
 
@@ -44,9 +45,11 @@ def test_sites_view_renders_one_card_per_site(
     qtbot.addWidget(view)
 
     assert view.card_count == 2
-    cards = view.findChildren(SiteCard)
-    assert len(cards) == 2
-    assert {c._site_name for c in cards} == {"s1.local", "s2.local"}  # noqa: SLF001
+    summary_cards = view.findChildren(BenchSummaryCard)
+    assert len(summary_cards) == 1
+    assert summary_cards[0].row_count() == 2
+    site_rows = view.findChildren(SiteRow)
+    assert len(site_rows) == 2
 
 
 def test_sites_view_empty_state_when_no_benches(
