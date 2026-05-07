@@ -28,6 +28,11 @@ def _service_active(runner: CommandRunner, service: str) -> bool:
     return result.executed and result.returncode == 0
 
 
+def _service_enabled(runner: CommandRunner, service: str) -> bool:
+    result = runner.run(["systemctl", "is-enabled", "--quiet", service], check=False)
+    return result.executed and result.returncode == 0
+
+
 @dataclass
 class RedisComponent:
 
@@ -66,12 +71,21 @@ class RedisComponent:
                 )
             )
 
-        steps.append(
-            Step(
-                description=f"enable {REDIS_SERVICE} on boot",
-                command=self._sudo(["systemctl", "enable", REDIS_SERVICE]),
+        if _service_enabled(self.probe_runner, REDIS_SERVICE):
+            steps.append(
+                Step(
+                    description=f"{REDIS_SERVICE} already enabled on boot",
+                    command=(),
+                    skip_reason="service already enabled",
+                )
             )
-        )
+        else:
+            steps.append(
+                Step(
+                    description=f"enable {REDIS_SERVICE} on boot",
+                    command=self._sudo(["systemctl", "enable", REDIS_SERVICE]),
+                )
+            )
 
         if _service_active(self.probe_runner, REDIS_SERVICE):
             steps.append(

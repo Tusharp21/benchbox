@@ -22,10 +22,12 @@ class FakeProbeRunner(CommandRunner):
         *,
         installed_packages: Iterable[str] = (),
         active_services: Iterable[str] = (),
+        enabled_services: Iterable[str] = (),
     ) -> None:
         super().__init__(dry_run=False)
         self._installed = set(installed_packages)
         self._active = set(active_services)
+        self._enabled = set(enabled_services)
 
     def run(
         self,
@@ -45,6 +47,10 @@ class FakeProbeRunner(CommandRunner):
         if argv[:2] == ("systemctl", "is-active"):
             service = argv[-1]
             rc = 0 if service in self._active else 3
+            return CommandResult(argv, rc, "", "", True)
+        if argv[:2] == ("systemctl", "is-enabled"):
+            service = argv[-1]
+            rc = 0 if service in self._enabled else 1
             return CommandResult(argv, rc, "", "", True)
         raise AssertionError(f"unexpected probe command: {argv}")
 

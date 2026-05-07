@@ -52,6 +52,35 @@ class StreamingOpWorker(QThread):
         self.succeeded.emit(result)
 
 
+class ComponentProbeWorker(QThread):
+    """Run each component's plan() off the GUI thread.
+
+    Emits a per-component signal with (name, state, runnable_step_count)
+    where state is "installed" or "not_installed", determined from the
+    plan's runnable steps. Crashes in plan() are surfaced as a state of
+    "failed" so the card can show something rather than hang.
+    """
+
+    component_probed = Signal(str, str, int)
+    probe_finished = Signal()
+
+    def __init__(self, components: Sequence[Component]) -> None:
+        super().__init__()
+        self._components = list(components)
+
+    def run(self) -> None:
+        for component in self._components:
+            try:
+                plan = component.plan()
+                runnable = len(plan.runnable_steps)
+                state = "installed" if runnable == 0 else "not_installed"
+            except Exception:  # noqa: BLE001 — surface any probe failure
+                runnable = 0
+                state = "failed"
+            self.component_probed.emit(component.name, state, runnable)
+        self.probe_finished.emit()
+
+
 class InstallWorker(QThread):
     component_started = Signal(str, int, int)
     component_finished = Signal(str, bool)

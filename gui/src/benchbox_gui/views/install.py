@@ -10,7 +10,6 @@ from benchbox_core.installer import (
     AptComponent,
     BenchCliComponent,
     Component,
-    ComponentPlan,
     MariaDBComponent,
     NodeComponent,
     RedisComponent,
@@ -36,7 +35,7 @@ from PySide6.QtWidgets import (
 from benchbox_gui.widgets.card_grid import CardGrid
 from benchbox_gui.widgets.component_card import ComponentCard
 from benchbox_gui.widgets.preflight_strip import PreflightStrip
-from benchbox_gui.workers import InstallWorker
+from benchbox_gui.workers import ComponentProbeWorker, InstallWorker
 
 # One-line description per component name so the cards read as a
 # task list rather than just a list of identifiers.
@@ -101,6 +100,14 @@ class InstallerView(QWidget):
         self._progress.setVisible(False)
 
         self._dry_run = QCheckBox("Dry run (preview only)")
+        self._refresh = QPushButton("Refresh status")
+        self._refresh.setProperty("role", "ghost")
+        self._refresh.setMinimumHeight(34)
+        self._refresh.setToolTip(
+            "Re-probe each component (dpkg + systemctl). Click after starting "
+            "a service or installing a missing piece by hand."
+        )
+        self._refresh.clicked.connect(self._refresh_components)
         self._run = QPushButton("Run install")
         self._run.setProperty("role", "primary")
         self._run.setMinimumHeight(34)
@@ -108,6 +115,7 @@ class InstallerView(QWidget):
         controls = QHBoxLayout()
         controls.addWidget(self._dry_run)
         controls.addStretch(1)
+        controls.addWidget(self._refresh)
         controls.addWidget(self._run)
 
         header_text = QVBoxLayout()
@@ -131,6 +139,7 @@ class InstallerView(QWidget):
         layout.addLayout(controls)
 
         self._worker: InstallWorker | None = None
+        self._probe_worker: ComponentProbeWorker | None = None
         self._populate_preflight()
         self._populate_components()
 
@@ -163,24 +172,54 @@ class InstallerView(QWidget):
         except Exception:  # noqa: BLE001
             password = ""
 
+        self._cards = {}
         components = self._build_components(password)
         cards: list[QWidget] = []
         for component in components:
             description = _COMPONENT_DESCRIPTIONS.get(component.name, "")
             card = ComponentCard(component.name, description)
-            try:
-                plan: ComponentPlan = component.plan()
-            except Exception:  # noqa: BLE001
-                plan = ComponentPlan(component=component.name, steps=())
-            card.set_state(self._initial_state_from_plan(plan))
+            card.set_state("checking")
             self._cards[component.name] = card
             cards.append(card)
         self._cards_grid.set_cards(cards)
 
-    def _initial_state_from_plan(self, plan: ComponentPlan) -> str:
-        if not plan.steps or not plan.runnable_steps:
-            return "installed"
-        return "not_installed"
+        self._start_probe(components)
+
+    def _start_probe(self, components: list[Component]) -> None:
+        # Tear down any in-flight probe so a rapid refresh doesn't race.
+        if self._probe_worker is not None and self._probe_worker.isRunning():
+            self._probe_worker.quit()
+            self._probe_worker.wait(2000)
+        self._refresh.setEnabled(False)
+        self._probe_worker = ComponentProbeWorker(components)
+        self._probe_worker.component_probed.connect(self._on_component_probed)
+        self._probe_worker.probe_finished.connect(self._on_probe_finished)
+        self._probe_worker.start()
+
+    def _on_component_probed(self, name: str, state: str, _runnable: int) -> None:
+        card = self._cards.get(name)
+        if card is not None:
+            card.set_state(state)
+
+    def _on_probe_finished(self) -> None:
+        self._refresh.setEnabled(True)
+
+    def _refresh_components(self) -> None:
+        try:
+            password = credentials.get_mariadb_root_password() or ""
+        except Exception:  # noqa: BLE001
+            password = ""
+        components = self._build_components(password)
+        for component in components:
+            card = self._cards.get(component.name)
+            if card is not None:
+                card.set_state("checking")
+        self._start_probe(components)
+
+    def shutdown(self) -> None:
+        if self._probe_worker is not None and self._probe_worker.isRunning():
+            self._probe_worker.quit()
+            self._probe_worker.wait(2000)
 
     # --- credentials -------------------------------------------------
 
@@ -270,6 +309,8 @@ class InstallerView(QWidget):
                     "Install failed",
                     f"Stopped at component {failed!r}. Check session logs for details.",
                 )
+        # Re-probe so card states reflect what's actually on disk after the run.
+        self._refresh_components()
 
     # --- log ---------------------------------------------------------
 

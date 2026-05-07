@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 _STATE_LABELS: dict[str, str] = {
+    "checking": "Checking…",
     "installed": "Installed",
     "not_installed": "Not installed",
     "queued": "Queued",
@@ -15,6 +16,7 @@ _STATE_LABELS: dict[str, str] = {
 }
 
 _STATE_COLOURS: dict[str, str | None] = {
+    "checking": "#6e7781",
     "installed": "#1a7f37",
     "not_installed": None,
     "queued": None,

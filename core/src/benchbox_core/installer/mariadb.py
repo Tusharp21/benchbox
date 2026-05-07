@@ -46,6 +46,11 @@ def _service_active(runner: CommandRunner, service: str) -> bool:
     return result.executed and result.returncode == 0
 
 
+def _service_enabled(runner: CommandRunner, service: str) -> bool:
+    result = runner.run(["systemctl", "is-enabled", "--quiet", service], check=False)
+    return result.executed and result.returncode == 0
+
+
 def _config_override_present(path: Path = CONFIG_OVERRIDE_PATH) -> bool:
     if not path.is_file():
         return False
@@ -97,7 +102,8 @@ class MariaDBComponent:
                 )
             )
 
-        if _config_override_present(self.config_override_path):
+        config_present = _config_override_present(self.config_override_path)
+        if config_present:
             steps.append(
                 Step(
                     description=f"Frappe charset override already at {self.config_override_path}",
@@ -114,14 +120,32 @@ class MariaDBComponent:
                 )
             )
 
-        steps.append(
-            Step(
-                description="enable mariadb service on boot",
-                command=self._sudo(["systemctl", "enable", "mariadb"]),
+        if _service_enabled(self.probe_runner, "mariadb"):
+            steps.append(
+                Step(
+                    description="mariadb already enabled on boot",
+                    command=(),
+                    skip_reason="service already enabled",
+                )
             )
-        )
+        else:
+            steps.append(
+                Step(
+                    description="enable mariadb service on boot",
+                    command=self._sudo(["systemctl", "enable", "mariadb"]),
+                )
+            )
 
-        if _service_active(self.probe_runner, "mariadb"):
+        active = _service_active(self.probe_runner, "mariadb")
+        if active and config_present:
+            steps.append(
+                Step(
+                    description="mariadb already running; config unchanged",
+                    command=(),
+                    skip_reason="service already running",
+                )
+            )
+        elif active:
             steps.append(
                 Step(
                     description="restart mariadb to pick up config",

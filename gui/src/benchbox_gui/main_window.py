@@ -147,7 +147,7 @@ class MainWindow(QMainWindow):
 
     def shutdown_processes(self) -> None:
         self._process_manager.stop_all()
-        for view in (self._bench_detail,):
+        for view in (self._bench_detail, self._installer):
             shutdown = getattr(view, "shutdown", None)
             if callable(shutdown):
                 shutdown()
