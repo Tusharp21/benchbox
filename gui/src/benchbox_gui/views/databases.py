@@ -148,7 +148,7 @@ class DatabasesView(QWidget):
         self._table = QTableWidget(0, 6)
         self._table.setObjectName("DatabasesTable")
         self._table.setHorizontalHeaderLabels(
-            ["Database", "Status", "Size", "Site", "Bench", ""]
+            ["Database", "Status", "Size", "Site", "Bench", "Action"]
         )
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -160,11 +160,15 @@ class DatabasesView(QWidget):
 
         h = self._table.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        h.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        h.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         h.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         h.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         h.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        h.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        h.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        # Fixed columns ignore content; pin widths that fit our cell widgets
+        # comfortably (Qt's ResizeToContents doesn't measure setCellWidget()).
+        self._table.setColumnWidth(1, 140)
+        self._table.setColumnWidth(5, 140)
         h.setHighlightSections(False)
         h.setSortIndicatorShown(True)
         h.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -323,7 +327,7 @@ class DatabasesView(QWidget):
         drop_btn.setProperty("role", "danger")
         drop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         drop_btn.setEnabled(db.is_orphan)
-        drop_btn.setMinimumHeight(28)
+        drop_btn.setMinimumSize(96, 34)
         if not db.is_orphan:
             drop_btn.setToolTip(
                 "This database is allocated to a site. Use the bench's "
@@ -335,9 +339,10 @@ class DatabasesView(QWidget):
         action_cell = QWidget()
         action_cell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         action_layout = QHBoxLayout(action_cell)
-        action_layout.setContentsMargins(8, 2, 12, 2)
+        action_layout.setContentsMargins(10, 6, 10, 6)
         action_layout.addStretch(1)
         action_layout.addWidget(drop_btn)
+        action_layout.addStretch(1)
         self._table.setCellWidget(row, 5, action_cell)
 
     def _refresh_summary(self, visible_count: int | None = None) -> None:
