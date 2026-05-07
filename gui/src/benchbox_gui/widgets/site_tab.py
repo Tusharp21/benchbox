@@ -1,8 +1,7 @@
-"""Per-site tab inside the bench detail view."""
+"""Per-site tab inside the bench detail view — read-only site info."""
 
 from __future__ import annotations
 
-import shlex
 from pathlib import Path
 
 from benchbox_core import introspect
@@ -10,15 +9,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
-    QHBoxLayout,
     QLabel,
-    QPushButton,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
-
-from benchbox_gui.widgets.command_runner import BenchCommandRunner
 
 
 def _section_header(title: str) -> QWidget:
@@ -42,6 +36,13 @@ def _section_header(title: str) -> QWidget:
 
 
 class SiteTab(QWidget):
+    """Read-only site info card.
+
+    Per-site command running and maintenance buttons used to live here;
+    they were removed in favor of the bench-level Free terminal tab,
+    which can drive any ``bench --site <name> ...`` command directly.
+    """
+
     def __init__(
         self,
         bench_path: Path,
@@ -63,17 +64,18 @@ class SiteTab(QWidget):
 
         layout.addWidget(_section_header("Site info"))
         layout.addLayout(self._build_info_table())
-        layout.addSpacing(6)
 
-        layout.addWidget(_section_header("Maintenance"))
-        layout.addLayout(self._build_maintenance_grid())
-        layout.addSpacing(6)
-
-        layout.addWidget(_section_header("Run any command"))
-        self._runner = BenchCommandRunner(locked_site=site.name, show_chips=False)
-        self._runner.set_bench(bench_path, [site.name])
-        self._runner.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        layout.addWidget(self._runner, 1)
+        hint = QLabel(
+            "Use the <b>Free terminal</b> tab to run "
+            "<code>bench --site {site} ...</code> commands like migrate, "
+            "backup, clear-cache, or maintenance toggles.".format(site=site.name)
+        )
+        hint.setProperty("role", "dim")
+        hint.setWordWrap(True)
+        hint.setTextFormat(Qt.TextFormat.RichText)
+        layout.addSpacing(8)
+        layout.addWidget(hint)
+        layout.addStretch(1)
 
     @property
     def site_name(self) -> str:
@@ -87,21 +89,8 @@ class SiteTab(QWidget):
     def url(self) -> str:
         return self._url
 
-    @property
-    def runner(self) -> BenchCommandRunner:
-        return self._runner
-
-    def shutdown(self) -> None:
-        self._runner.shutdown()
-
-    def run_drop_site(self, *, root_password: str) -> bool:
-        site = self._site.name
-        real_cmd = (
-            f"bench drop-site {shlex.quote(site)} "
-            f"--root-password {shlex.quote(root_password)} --no-backup"
-        )
-        display_cmd = f"bench drop-site {site} --root-password ******** --no-backup"
-        return self._runner.run_command(real_cmd, display=display_cmd)
+    def shutdown(self) -> None:  # kept for API parity with the previous tab
+        pass
 
     def _build_info_table(self) -> QGridLayout:
         grid = QGridLayout()
@@ -154,72 +143,6 @@ class SiteTab(QWidget):
                 f"<code>bench --site {self._site.name} list-apps</code> to verify)</span>"
             )
         return "(none)"
-
-    def _build_maintenance_grid(self) -> QGridLayout:
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(8)
-        grid.setContentsMargins(0, 0, 0, 0)
-
-        site = self._site.name
-
-        migrate = self._mk_button("Migrate", role="primary")
-        migrate.clicked.connect(lambda: self._runner.prefill(f"bench --site {site} migrate"))
-
-        clear_cache = self._mk_button("Clear cache")
-        clear_cache.clicked.connect(
-            lambda: self._runner.prefill(f"bench --site {site} clear-cache")
-        )
-
-        clear_web = self._mk_button("Clear website cache")
-        clear_web.clicked.connect(
-            lambda: self._runner.prefill(f"bench --site {site} clear-website-cache")
-        )
-
-        backup = self._mk_button("Backup")
-        backup.clicked.connect(lambda: self._runner.prefill(f"bench --site {site} backup"))
-
-        if self._site.scheduler_paused:
-            scheduler = self._mk_button("Resume scheduler", role="danger")
-            scheduler.clicked.connect(
-                lambda: self._runner.prefill(f"bench --site {site} enable-scheduler")
-            )
-        else:
-            scheduler = self._mk_button("Pause scheduler")
-            scheduler.clicked.connect(
-                lambda: self._runner.prefill(f"bench --site {site} disable-scheduler")
-            )
-
-        if self._site.maintenance_mode:
-            maintenance = self._mk_button("Exit maintenance mode", role="danger")
-            maintenance.clicked.connect(
-                lambda: self._runner.prefill(
-                    f"bench --site {site} set-maintenance-mode off"
-                )
-            )
-        else:
-            maintenance = self._mk_button("Enter maintenance mode")
-            maintenance.clicked.connect(
-                lambda: self._runner.prefill(
-                    f"bench --site {site} set-maintenance-mode on"
-                )
-            )
-
-        buttons = [migrate, clear_cache, clear_web, backup, scheduler, maintenance]
-        for index, button in enumerate(buttons):
-            row, col = divmod(index, 3)
-            grid.addWidget(button, row, col)
-        for col in range(3):
-            grid.setColumnStretch(col, 1)
-        return grid
-
-    def _mk_button(self, label: str, *, role: str | None = None) -> QPushButton:
-        btn = QPushButton(label)
-        if role is not None:
-            btn.setProperty("role", role)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setMinimumHeight(34)
-        return btn
 
 
 __all__ = ["SiteTab"]

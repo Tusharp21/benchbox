@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 from benchbox_core import app as core_app
@@ -24,7 +25,6 @@ from benchbox_gui.widgets.app_card import AppCard
 from benchbox_gui.widgets.bench_actions import open_in_file_manager
 from benchbox_gui.widgets.bench_detail_header import BenchDetailHeader
 from benchbox_gui.widgets.bench_process_dock import BenchProcessDock
-from benchbox_gui.widgets.card_grid import CardGrid
 from benchbox_gui.widgets.command_runner import BenchCommandRunner
 from benchbox_gui.widgets.dialogs import (
     GetAppDialog,
@@ -93,14 +93,14 @@ class BenchDetailView(QWidget):
         self._tabs.setUsesScrollButtons(True)
         self._tabs.setDocumentMode(True)
 
-        # Apps tab — populated in load(). Wrapped in a vertical-scroll
-        # area so a many-app bench scrolls cleanly without ever forcing
-        # horizontal scroll on the page.
-        self._apps_grid = CardGrid()
+        # Apps tab — populated in load(). Cards stack top-to-bottom at
+        # full width so the action buttons line up consistently regardless
+        # of how many apps the bench has.
         apps_inner = QWidget()
-        apps_layout = QVBoxLayout(apps_inner)
-        apps_layout.setContentsMargins(16, 16, 16, 16)
-        apps_layout.addWidget(self._apps_grid, 1)
+        self._apps_layout = QVBoxLayout(apps_inner)
+        self._apps_layout.setContentsMargins(16, 16, 16, 16)
+        self._apps_layout.setSpacing(10)
+        self._apps_layout.addStretch(1)
         self._tabs.addTab(_v_scroll(apps_inner), _APPS_TAB_LABEL)
 
         # Free terminal tab — bench-wide commands, no site lock.
@@ -148,18 +148,30 @@ class BenchDetailView(QWidget):
 
         self._dock.set_bench(path, webserver_port=info.webserver_port)
 
-        app_cards: list[QWidget] = []
+        self._clear_app_cards()
         for app in info.apps:
             card = AppCard(path, app, show_bench_path=False)
             card.install_requested.connect(self._on_install_from_app_card)
             card.uninstall_requested.connect(self._on_uninstall_requested)
             card.remove_requested.connect(self._on_remove_requested)
             card.switch_branch_requested.connect(self._on_switch_branch_requested)
-            app_cards.append(card)
-        self._apps_grid.set_cards(app_cards)
+            # Insert before the trailing stretch so cards stay top-aligned.
+            self._apps_layout.insertWidget(self._apps_layout.count() - 1, card)
 
         self._free_runner.set_bench(path, [s.name for s in info.sites])
         self._rebuild_site_tabs(info, path)
+
+    def _clear_app_cards(self) -> None:
+        # Walk backwards so the trailing stretch (last item) stays put.
+        for i in reversed(range(self._apps_layout.count())):
+            item = self._apps_layout.itemAt(i)
+            if item is None:
+                continue
+            w = item.widget()
+            if isinstance(w, AppCard):
+                self._apps_layout.takeAt(i)
+                w.setParent(None)
+                w.deleteLater()
 
     def _rebuild_site_tabs(self, info: introspect.BenchInfo, path: Path) -> None:
         for tab in self._site_tabs.values():
@@ -463,11 +475,14 @@ class BenchDetailView(QWidget):
         db_root = self._ensure_mariadb_password()
         if db_root is None:
             return
-        site_tab = self._site_tabs.get(site_name)
-        if site_tab is None:
-            return
-        # One-shot connection so the page refreshes when the drop finishes.
-        runner = site_tab.runner
+        # Drop runs in the bench-level Free terminal so the user can see
+        # the live output and follow up with other commands afterwards.
+        runner = self._free_runner
+        real_cmd = (
+            f"bench drop-site {shlex.quote(site_name)} "
+            f"--root-password {shlex.quote(db_root)} --no-backup"
+        )
+        display_cmd = f"bench drop-site {site_name} --root-password ******** --no-backup"
 
         def _on_finished(code: int) -> None:
             try:
@@ -481,11 +496,14 @@ class BenchDetailView(QWidget):
                     self,
                     "Delete failed",
                     f"<code>bench drop-site</code> exited with code {code}. "
-                    "See the site tab's log for details.",
+                    "See the Free terminal tab for details.",
                 )
 
         runner.command_finished.connect(_on_finished)
-        ok = site_tab.run_drop_site(root_password=db_root)
+        # Make sure the Free terminal tab is visible so the user sees output.
+        free_index = self._tabs.count() - 1
+        self._tabs.setCurrentIndex(free_index)
+        ok = runner.run_command(real_cmd, display=display_cmd)
         if not ok:
             try:
                 runner.command_finished.disconnect(_on_finished)
@@ -493,8 +511,8 @@ class BenchDetailView(QWidget):
                 pass
             QMessageBox.warning(
                 self,
-                "Runner busy",
-                "The site's command runner is already running something. "
+                "Terminal busy",
+                "The Free terminal is already running a command. "
                 "Wait for it to finish or cancel it first.",
             )
 
