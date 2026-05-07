@@ -31,15 +31,12 @@ class _Pill(QLabel):
 class BenchDetailHeader(QWidget):
     back_requested = Signal()
     open_folder_requested = Signal()
+    open_ide_requested = Signal()
 
     new_site_requested = Signal()
     get_app_requested = Signal()
     new_app_requested = Signal()
     restore_site_requested = Signal()
-
-    update_requested = Signal()
-    migrate_all_requested = Signal()
-    restart_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -86,16 +83,10 @@ class BenchDetailHeader(QWidget):
         self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_btn.setMenu(add_menu)
 
-        bench_menu = QMenu(self)
-        bench_menu.addAction(self._mk_action("Update bench", self.update_requested.emit))
-        bench_menu.addAction(
-            self._mk_action("Migrate all sites", self.migrate_all_requested.emit)
-        )
-        bench_menu.addAction(self._mk_action("Restart processes", self.restart_requested.emit))
-
-        self._bench_btn = QPushButton("Bench...")
-        self._bench_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._bench_btn.setMenu(bench_menu)
+        self._ide_btn = QPushButton("Open in IDE")
+        self._ide_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ide_btn.setToolTip("Open this bench folder in your editor ($VISUAL/$EDITOR or VS Code/Sublime/JetBrains)")
+        self._ide_btn.clicked.connect(self.open_ide_requested.emit)
 
         self._folder_btn = QPushButton("Open folder")
         self._folder_btn.setProperty("role", "ghost")
@@ -108,7 +99,7 @@ class BenchDetailHeader(QWidget):
         top_row.addWidget(self._back, 0, Qt.AlignmentFlag.AlignTop)
         top_row.addStretch(1)
         top_row.addWidget(self._add_btn, 0, Qt.AlignmentFlag.AlignTop)
-        top_row.addWidget(self._bench_btn, 0, Qt.AlignmentFlag.AlignTop)
+        top_row.addWidget(self._ide_btn, 0, Qt.AlignmentFlag.AlignTop)
         top_row.addWidget(self._folder_btn, 0, Qt.AlignmentFlag.AlignTop)
 
         title_block = QVBoxLayout()

@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from benchbox_gui.services.bench_processes import BenchProcessManager
 from benchbox_gui.widgets.app_card import AppCard
-from benchbox_gui.widgets.bench_actions import open_in_file_manager
+from benchbox_gui.widgets.bench_actions import open_in_file_manager, open_in_ide
 from benchbox_gui.widgets.bench_detail_header import BenchDetailHeader
 from benchbox_gui.widgets.command_runner import BenchCommandRunner
 from benchbox_gui.widgets.dialogs import (
@@ -77,13 +77,11 @@ class BenchDetailView(QWidget):
         self._header = BenchDetailHeader()
         self._header.back_requested.connect(self.back_requested.emit)
         self._header.open_folder_requested.connect(self._on_open_folder)
+        self._header.open_ide_requested.connect(self._on_open_ide)
         self._header.new_site_requested.connect(self._on_new_site)
         self._header.get_app_requested.connect(self._on_get_app)
         self._header.new_app_requested.connect(self._on_new_app)
         self._header.restore_site_requested.connect(self._on_restore_site)
-        self._header.update_requested.connect(self._on_bench_update)
-        self._header.migrate_all_requested.connect(self._on_migrate_all)
-        self._header.restart_requested.connect(self._on_bench_restart)
 
         # ---- main tab strip ----------------------------------------
         self._tabs = QTabWidget()
@@ -207,6 +205,24 @@ class BenchDetailView(QWidget):
         if self._current_path is not None:
             open_in_file_manager(self._current_path)
 
+    def _on_open_ide(self) -> None:
+        if self._current_path is None:
+            return
+        if open_in_ide(self._current_path):
+            return
+        # No editor on PATH and no $VISUAL/$EDITOR set — fall back to the
+        # file manager so the user still gets *something*, and tell them
+        # what we couldn't find.
+        open_in_file_manager(self._current_path)
+        QMessageBox.information(
+            self,
+            "No IDE found",
+            "Could not detect a GUI editor (VS Code, Sublime, JetBrains, etc.). "
+            "Set <code>$VISUAL</code> or <code>$EDITOR</code> to your editor's "
+            "command, or install one of: code, cursor, subl, idea. "
+            "Opened the folder in your file manager instead.",
+        )
+
     def _on_open_browser_for_url(self, url: str) -> None:
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
@@ -218,17 +234,6 @@ class BenchDetailView(QWidget):
         if self._current_path is None:
             return
         self._on_delete_site(self._current_path, site_name)
-
-    # --- bench-level chores from the header dropdown -----------------
-
-    def _on_bench_update(self) -> None:
-        self._prefill_free_runner("bench update")
-
-    def _on_migrate_all(self) -> None:
-        self._prefill_free_runner("bench migrate")
-
-    def _on_bench_restart(self) -> None:
-        self._prefill_free_runner("bench restart")
 
     def _prefill_free_runner(self, command: str) -> None:
         free_index = self._tabs.count() - 1

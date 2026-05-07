@@ -48,8 +48,10 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("benchbox")
-        self.resize(1200, 760)
-        self.setMinimumSize(960, 600)
+        # Wider default — the bench detail page now packs a status row,
+        # action buttons, URL link, and a live log into each site tab.
+        self.resize(1480, 880)
+        self.setMinimumSize(1100, 680)
 
         self._theme: preferences.Theme = preferences.get_theme()
         self._process_manager = BenchProcessManager(self)

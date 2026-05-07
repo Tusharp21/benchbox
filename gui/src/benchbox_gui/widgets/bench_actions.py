@@ -7,6 +7,9 @@ older code paths. The active bench-detail page now puts the start/stop
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Signal
@@ -225,3 +228,72 @@ class BenchProcessPanel(QWidget):
 
 def open_in_file_manager(path: Path) -> bool:
     return QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+
+# Common GUI editors, in order of preference. First match on PATH wins.
+_IDE_CANDIDATES: tuple[str, ...] = (
+    "code",  # VS Code
+    "code-insiders",
+    "cursor",
+    "windsurf",
+    "subl",  # Sublime Text
+    "zed",
+    "idea",  # JetBrains
+    "pycharm",
+    "webstorm",
+    "rider",
+    "gvim",
+    "gnome-text-editor",
+    "kate",
+    "gedit",
+)
+
+
+def _resolve_ide_command() -> list[str] | None:
+    """Pick an editor binary + base argv, or None if nothing usable found.
+
+    Honors $VISUAL / $EDITOR first (those carry user intent and may
+    include flags, e.g. ``code -n``). Falls back to a probe of common
+    GUI editors on PATH.
+    """
+    for env_var in ("VISUAL", "EDITOR"):
+        raw = os.environ.get(env_var)
+        if not raw:
+            continue
+        parts = raw.split()
+        if not parts:
+            continue
+        binary = parts[0]
+        # $EDITOR may be a terminal editor (vim, nano) — skip those, the
+        # user almost certainly wants a GUI when clicking a button.
+        if Path(binary).name in {"vi", "vim", "nano", "nvim", "ed", "emacs"}:
+            continue
+        if shutil.which(binary):
+            return parts
+
+    for cand in _IDE_CANDIDATES:
+        if shutil.which(cand):
+            return [cand]
+    return None
+
+
+def open_in_ide(path: Path) -> bool:
+    """Open ``path`` in the user's IDE/editor.
+
+    Returns True if a launcher was spawned, False if no IDE could be
+    found (caller should fall back to the file manager and surface a
+    hint).
+    """
+    argv = _resolve_ide_command()
+    if argv is None:
+        return False
+    try:
+        subprocess.Popen(  # noqa: S603 — argv list, never shell=True
+            [*argv, str(path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        return False
+    return True
