@@ -102,6 +102,31 @@ QFrame#FilterBar QLabel {
     background: transparent;
 }
 
+/* ---------- bench section ---------- */
+
+QFrame#BenchSection {
+    background: transparent;
+}
+QFrame#BenchSectionHeader {
+    background-color: #282a36;
+    border: 1px solid #343746;
+    border-left: 3px solid #bd93f9;
+    border-radius: 8px;
+}
+QFrame#BenchSectionHeader QLabel {
+    background: transparent;
+}
+QToolButton[role="section-toggle"] {
+    background: transparent;
+    color: #bd93f9;
+    border: none;
+    padding: 0px 4px;
+    font-size: 14pt;
+}
+QToolButton[role="section-toggle"]:hover {
+    color: #cfa8fa;
+}
+
 /* ---------- cards ---------- */
 
 QFrame#Card {

@@ -23,6 +23,7 @@ from benchbox_gui.services.bench_processes import BenchProcessManager
 from benchbox_gui.views.apps import AppsView
 from benchbox_gui.views.bench_detail import BenchDetailView
 from benchbox_gui.views.bench_list import BenchListView
+from benchbox_gui.views.databases import DatabasesView
 from benchbox_gui.views.docs_view import DocumentationView
 from benchbox_gui.views.install import InstallerView
 from benchbox_gui.views.logs_view import LogsView
@@ -36,6 +37,7 @@ _SIDEBAR_ENTRIES: tuple[tuple[str, str, str], ...] = (
     ("Install", "install", "install"),
     ("Sites", "sites", "sites"),
     ("Apps", "apps", "apps"),
+    ("Databases", "databases", "databases"),
     ("Logs", "logs", "logs"),
     ("Documentation", "docs", "docs"),
     ("Settings", "settings", "settings"),
@@ -66,6 +68,7 @@ class MainWindow(QMainWindow):
         self._register_page("install", self._installer)
         self._register_page("sites", SitesView())
         self._register_page("apps", AppsView())
+        self._register_page("databases", DatabasesView())
         self._register_page("logs", LogsView())
         self._register_page("docs", DocumentationView())
         self._register_page("settings", SettingsView())
