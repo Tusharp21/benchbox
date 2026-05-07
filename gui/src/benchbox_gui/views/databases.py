@@ -44,6 +44,36 @@ def _format_size(n: int) -> str:
     return f"{n} B"
 
 
+class _NumericItem(QTableWidgetItem):
+    """Sortable cell that ranks by an underlying number, not by formatted text."""
+
+    def __init__(self, display: str, value: float) -> None:
+        super().__init__(display)
+        self._value = value
+        self.setData(Qt.ItemDataRole.UserRole, value)
+        self.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+    def __lt__(self, other: object) -> bool:
+        if isinstance(other, _NumericItem):
+            return self._value < other._value
+        return super().__lt__(other)  # type: ignore[arg-type]
+
+
+class _StatusItem(QTableWidgetItem):
+    """Sort by orphan-vs-allocated regardless of label text."""
+
+    def __init__(self, *, is_orphan: bool) -> None:
+        # Empty text — the actual badge is rendered as a cell widget.
+        super().__init__("")
+        self._sort_key = 1 if is_orphan else 0
+        self.setData(Qt.ItemDataRole.UserRole, self._sort_key)
+
+    def __lt__(self, other: object) -> bool:
+        if isinstance(other, _StatusItem):
+            return self._sort_key < other._sort_key
+        return super().__lt__(other)  # type: ignore[arg-type]
+
+
 class DatabasesView(QWidget):
     """List every database, group/filter by allocation, drop orphans."""
 
@@ -113,8 +143,10 @@ class DatabasesView(QWidget):
         filter_layout.addWidget(self._status_combo)
         filter_layout.addWidget(self._summary)
 
-        # Table.
+        # Table — modeled like a datatable with sortable columns + accent
+        # selection bar.
         self._table = QTableWidget(0, 6)
+        self._table.setObjectName("DatabasesTable")
         self._table.setHorizontalHeaderLabels(
             ["Database", "Status", "Size", "Site", "Bench", ""]
         )
@@ -122,8 +154,10 @@ class DatabasesView(QWidget):
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setAlternatingRowColors(True)
+        self._table.setAlternatingRowColors(False)
         self._table.setShowGrid(False)
+        self._table.setSortingEnabled(True)
+
         h = self._table.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -131,9 +165,21 @@ class DatabasesView(QWidget):
         h.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         h.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         h.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.verticalHeader().setDefaultSectionSize(36)
+        h.setHighlightSections(False)
+        h.setSortIndicatorShown(True)
+        h.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
-        # Empty / error state.
+        self._table.verticalHeader().setDefaultSectionSize(48)
+        # Default sort: by Database name ascending. Users can click any
+        # header to re-sort.
+        self._table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+
+        # Footer — summary line under the table, like a datatable footer.
+        self._footer = QLabel("")
+        self._footer.setProperty("role", "dim")
+        self._footer.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        # Empty / error state — full-width overlay shown when the table is hidden.
         self._notice = QLabel()
         self._notice.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._notice.setWordWrap(True)
@@ -145,6 +191,7 @@ class DatabasesView(QWidget):
         root.addLayout(header)
         root.addWidget(self._filter_bar)
         root.addWidget(self._table, 1)
+        root.addWidget(self._footer)
         root.addWidget(self._notice)
 
         self.refresh()
@@ -204,10 +251,15 @@ class DatabasesView(QWidget):
 
     def _render(self) -> None:
         visible = [db for db in self._databases if self._matches(db)]
+        # Disable sort while we replace the rows — otherwise items would
+        # be re-sorted after every setItem and the indices we wrote to
+        # would no longer match.
+        self._table.setSortingEnabled(False)
         self._table.setRowCount(len(visible))
         for row, db in enumerate(visible):
             self._populate_row(row, db)
-        self._refresh_summary()
+        self._table.setSortingEnabled(True)
+        self._refresh_summary(len(visible))
         if self._databases and not visible:
             self._show_notice(
                 "<p>No databases match the current filters.</p>"
@@ -229,34 +281,49 @@ class DatabasesView(QWidget):
     def _populate_row(self, row: int, db: DatabaseInfo) -> None:
         name_item = QTableWidgetItem(db.name)
         name_item.setData(Qt.ItemDataRole.UserRole, db.name)
+        name_item.setToolTip(db.name)
         self._table.setItem(row, 0, name_item)
 
+        # Status: a badge cell. Sortable item underneath provides ordering.
+        self._table.setItem(row, 1, _StatusItem(is_orphan=db.is_orphan))
         status_label = QLabel("orphan" if db.is_orphan else "allocated")
-        status_label.setProperty("role", "badge" if db.is_orphan else "badge-accent")
+        status_label.setProperty(
+            "role", "badge-warn" if db.is_orphan else "badge-accent"
+        )
         status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # Wrap in a frame so cell padding doesn't squish the badge.
+        status_label.setMinimumWidth(86)
         cell = QWidget()
+        cell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         cell_layout = QHBoxLayout(cell)
-        cell_layout.setContentsMargins(6, 4, 6, 4)
-        cell_layout.addWidget(status_label)
+        cell_layout.setContentsMargins(8, 4, 8, 4)
+        cell_layout.addWidget(status_label, 0, Qt.AlignmentFlag.AlignVCenter)
         cell_layout.addStretch(1)
         self._table.setCellWidget(row, 1, cell)
 
-        size_item = QTableWidgetItem(_format_size(db.size_bytes))
-        size_item.setData(Qt.ItemDataRole.UserRole, db.size_bytes)
-        size_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # Size: numeric sort, right-aligned.
+        size_item = _NumericItem(_format_size(db.size_bytes), float(db.size_bytes))
         self._table.setItem(row, 2, size_item)
 
-        site_text = db.site_name or "—"
-        self._table.setItem(row, 3, QTableWidgetItem(site_text))
+        # Site / Bench: dim rendering when missing.
+        site_item = QTableWidgetItem(db.site_name or "—")
+        if not db.site_name:
+            site_item.setForeground(Qt.GlobalColor.gray)
+        self._table.setItem(row, 3, site_item)
 
-        bench_text = str(db.bench_path) if db.bench_path else "—"
-        self._table.setItem(row, 4, QTableWidgetItem(bench_text))
+        if db.bench_path:
+            bench_item = QTableWidgetItem(db.bench_path.name)
+            bench_item.setToolTip(str(db.bench_path))
+        else:
+            bench_item = QTableWidgetItem("—")
+            bench_item.setForeground(Qt.GlobalColor.gray)
+        self._table.setItem(row, 4, bench_item)
 
+        # Action cell — Drop only enabled for orphans.
         drop_btn = QPushButton("Drop")
         drop_btn.setProperty("role", "danger")
         drop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         drop_btn.setEnabled(db.is_orphan)
+        drop_btn.setMinimumHeight(28)
         if not db.is_orphan:
             drop_btn.setToolTip(
                 "This database is allocated to a site. Use the bench's "
@@ -266,30 +333,43 @@ class DatabasesView(QWidget):
             drop_btn.setToolTip("Drop this orphan database")
         drop_btn.clicked.connect(self._make_drop_handler(db.name))
         action_cell = QWidget()
+        action_cell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         action_layout = QHBoxLayout(action_cell)
-        action_layout.setContentsMargins(6, 2, 6, 2)
+        action_layout.setContentsMargins(8, 2, 12, 2)
         action_layout.addStretch(1)
         action_layout.addWidget(drop_btn)
         self._table.setCellWidget(row, 5, action_cell)
 
-    def _refresh_summary(self) -> None:
+    def _refresh_summary(self, visible_count: int | None = None) -> None:
         s = summarize(self._databases)
         if s.total == 0:
             self._summary.setText("")
+            self._footer.setText("")
             return
+
+        # Compact chip in the filter bar — just totals.
         self._summary.setText(
-            f"{s.total} total · {s.allocated} allocated · {s.orphan} orphan · "
+            f"{s.allocated} allocated · {s.orphan} orphan · "
             f"{_format_size(s.total_bytes)}"
         )
+
+        # Footer line under the table — shows what's currently visible.
+        shown = visible_count if visible_count is not None else s.total
+        if shown == s.total:
+            self._footer.setText(f"Showing all {s.total} databases")
+        else:
+            self._footer.setText(f"Showing {shown} of {s.total} databases")
 
     def _show_notice(self, text: str) -> None:
         self._notice.setText(text)
         self._notice.setVisible(True)
         self._table.setVisible(False)
+        self._footer.setVisible(False)
 
     def _hide_notice(self) -> None:
         self._notice.setVisible(False)
         self._table.setVisible(True)
+        self._footer.setVisible(True)
 
     # --- drop flow ---------------------------------------------------
 

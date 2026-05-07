@@ -83,14 +83,13 @@ class AppRow(_ItemRow):
 
 
 class BenchSummaryCard(QFrame):
-    """A bench rendered as a single card, with item rows inside."""
+    """A bench rendered as a single flat card with item rows inside."""
 
     def __init__(
         self,
         bench_path: Path,
         *,
         item_label: str,
-        accent_color: str = "#bd93f9",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -103,24 +102,12 @@ class BenchSummaryCard(QFrame):
         title = QLabel(bench_path.name or str(bench_path))
         title.setProperty("role", "h2")
 
-        path_label = QLabel(str(bench_path))
-        path_label.setProperty("role", "dim")
-        path_label.setWordWrap(True)
-        path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-
-        title_col = QVBoxLayout()
-        title_col.setSpacing(2)
-        title_col.setContentsMargins(0, 0, 0, 0)
-        title_col.addWidget(title)
-        title_col.addWidget(path_label)
-
         self._count_value = QLabel("0")
         self._count_value.setProperty("role", "kpi-value")
         self._count_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._count_label = QLabel(item_label.upper())
         self._count_label.setProperty("role", "kpi-label")
         self._count_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._count_value.setStyleSheet(f"color: {accent_color};")
 
         count_col = QVBoxLayout()
         count_col.setSpacing(2)
@@ -129,18 +116,10 @@ class BenchSummaryCard(QFrame):
         count_col.addWidget(self._count_label)
 
         header_row = QHBoxLayout()
-        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setContentsMargins(16, 12, 16, 12)
         header_row.setSpacing(12)
-        header_row.addLayout(title_col, 1)
+        header_row.addWidget(title, 1)
         header_row.addLayout(count_col)
-
-        self._header = QFrame()
-        self._header.setObjectName("BenchSummaryHeader")
-        self._header.setStyleSheet(f"#BenchSummaryHeader {{ border-left: 3px solid {accent_color}; }}")
-        header_layout = QVBoxLayout(self._header)
-        header_layout.setContentsMargins(16, 12, 16, 12)
-        header_layout.setSpacing(0)
-        header_layout.addLayout(header_row)
 
         self._body = QWidget()
         self._body_layout = QVBoxLayout(self._body)
@@ -156,7 +135,7 @@ class BenchSummaryCard(QFrame):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        root.addWidget(self._header)
+        root.addLayout(header_row)
         root.addWidget(self._body)
         root.addWidget(self._empty_hint)
 

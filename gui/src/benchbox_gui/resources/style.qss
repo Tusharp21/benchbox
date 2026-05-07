@@ -168,26 +168,13 @@ QFrame#BenchSummaryCard {
     border: 1px solid #343746;
     border-radius: 12px;
 }
-QFrame#BenchSummaryCard:hover {
-    border: 1px solid #bd93f9;
-}
-QFrame#BenchSummaryHeader {
-    background-color: #1e1f29;
-    border: none;
-    border-bottom: 1px solid #343746;
-    border-top-left-radius: 12px;
-    border-top-right-radius: 12px;
-}
-QFrame#BenchSummaryHeader QLabel {
+QFrame#BenchSummaryCard QLabel {
     background: transparent;
 }
 QFrame#ItemRow {
     background: transparent;
     border: none;
-    border-bottom: 1px solid #2a2c38;
-}
-QFrame#ItemRow:hover {
-    background-color: #2d2f3c;
+    border-top: 1px solid #343746;
 }
 QFrame#ItemRow QLabel {
     background: transparent;
@@ -227,6 +214,14 @@ QLabel[role="badge"] {
 }
 QLabel[role="badge-accent"] {
     background-color: #bd93f9;
+    color: #282a36;
+    padding: 3px 10px;
+    border-radius: 9px;
+    font-size: 10pt;
+    font-weight: 600;
+}
+QLabel[role="badge-warn"] {
+    background-color: #f1fa8c;
     color: #282a36;
     padding: 3px 10px;
     border-radius: 9px;
@@ -458,4 +453,57 @@ QListWidget::item:hover {
 }
 QListWidget::item:selected {
     background-color: #44475a;
+}
+
+/* ---------- datatable (Databases page) ---------- */
+
+QTableWidget#DatabasesTable {
+    background-color: #1e1f29;
+    alternate-background-color: #1e1f29;
+    gridline-color: transparent;
+    border: 1px solid #343746;
+    border-radius: 10px;
+    selection-background-color: #2d2f3c;
+    selection-color: #f8f8f2;
+    outline: 0;
+}
+QTableWidget#DatabasesTable::item {
+    padding: 10px 12px;
+    border: none;
+    border-bottom: 1px solid #2a2c38;
+}
+QTableWidget#DatabasesTable::item:hover {
+    background-color: #232531;
+}
+QTableWidget#DatabasesTable::item:selected {
+    background-color: #2d2f3c;
+    color: #f8f8f2;
+    border-left: 3px solid #bd93f9;
+}
+QTableWidget#DatabasesTable QHeaderView::section {
+    background-color: #16171f;
+    color: #6e7180;
+    padding: 12px 12px;
+    border: none;
+    border-bottom: 1px solid #343746;
+    font-weight: 700;
+    font-size: 9pt;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+}
+QTableWidget#DatabasesTable QHeaderView::section:hover {
+    color: #f8f8f2;
+    background-color: #1e2030;
+}
+QTableWidget#DatabasesTable QHeaderView::section:first {
+    border-top-left-radius: 10px;
+}
+QTableWidget#DatabasesTable QHeaderView::section:last {
+    border-top-right-radius: 10px;
+}
+QTableWidget#DatabasesTable QHeaderView::down-arrow,
+QTableWidget#DatabasesTable QHeaderView::up-arrow {
+    width: 10px;
+    height: 10px;
+    margin-right: 4px;
 }
