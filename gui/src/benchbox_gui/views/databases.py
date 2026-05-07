@@ -161,19 +161,23 @@ class DatabasesView(QWidget):
         h = self._table.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        h.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        h.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         h.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         h.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         h.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
         # Fixed columns ignore content; pin widths that fit our cell widgets
         # comfortably (Qt's ResizeToContents doesn't measure setCellWidget()).
-        self._table.setColumnWidth(1, 140)
-        self._table.setColumnWidth(5, 140)
+        self._table.setColumnWidth(1, 150)
+        self._table.setColumnWidth(2, 110)
+        self._table.setColumnWidth(5, 170)
+        h.setMinimumSectionSize(80)
         h.setHighlightSections(False)
         h.setSortIndicatorShown(True)
         h.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
-        self._table.verticalHeader().setDefaultSectionSize(48)
+        # 60px rows + the trimmed cell padding in QSS leave ~44px for cell
+        # widgets — enough for a 36px button with vertical breathing room.
+        self._table.verticalHeader().setDefaultSectionSize(60)
         # Default sort: by Database name ascending. Users can click any
         # header to re-sort.
         self._table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
@@ -295,11 +299,13 @@ class DatabasesView(QWidget):
             "role", "badge-warn" if db.is_orphan else "badge-accent"
         )
         status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_label.setMinimumWidth(86)
+        status_label.setFixedHeight(26)
+        status_label.setMinimumWidth(96)
         cell = QWidget()
         cell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         cell_layout = QHBoxLayout(cell)
-        cell_layout.setContentsMargins(8, 4, 8, 4)
+        cell_layout.setContentsMargins(12, 0, 8, 0)
+        cell_layout.setSpacing(0)
         cell_layout.addWidget(status_label, 0, Qt.AlignmentFlag.AlignVCenter)
         cell_layout.addStretch(1)
         self._table.setCellWidget(row, 1, cell)
@@ -327,7 +333,7 @@ class DatabasesView(QWidget):
         drop_btn.setProperty("role", "danger")
         drop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         drop_btn.setEnabled(db.is_orphan)
-        drop_btn.setMinimumSize(96, 34)
+        drop_btn.setFixedSize(120, 36)
         if not db.is_orphan:
             drop_btn.setToolTip(
                 "This database is allocated to a site. Use the bench's "
@@ -339,10 +345,10 @@ class DatabasesView(QWidget):
         action_cell = QWidget()
         action_cell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         action_layout = QHBoxLayout(action_cell)
-        action_layout.setContentsMargins(10, 6, 10, 6)
+        action_layout.setContentsMargins(0, 0, 12, 0)
+        action_layout.setSpacing(0)
         action_layout.addStretch(1)
-        action_layout.addWidget(drop_btn)
-        action_layout.addStretch(1)
+        action_layout.addWidget(drop_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self._table.setCellWidget(row, 5, action_cell)
 
     def _refresh_summary(self, visible_count: int | None = None) -> None:

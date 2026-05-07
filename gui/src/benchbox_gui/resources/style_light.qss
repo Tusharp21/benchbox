@@ -459,7 +459,7 @@ QTableWidget#DatabasesTable {
     outline: 0;
 }
 QTableWidget#DatabasesTable::item {
-    padding: 10px 12px;
+    padding: 6px 12px;
     border: none;
     border-bottom: 1px solid #eaeef2;
 }
