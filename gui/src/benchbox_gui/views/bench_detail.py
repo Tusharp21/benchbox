@@ -24,7 +24,6 @@ from benchbox_gui.services.bench_processes import BenchProcessManager
 from benchbox_gui.widgets.app_card import AppCard
 from benchbox_gui.widgets.bench_actions import open_in_file_manager
 from benchbox_gui.widgets.bench_detail_header import BenchDetailHeader
-from benchbox_gui.widgets.bench_process_dock import BenchProcessDock
 from benchbox_gui.widgets.command_runner import BenchCommandRunner
 from benchbox_gui.widgets.dialogs import (
     GetAppDialog,
@@ -111,24 +110,14 @@ class BenchDetailView(QWidget):
         free_layout.addWidget(self._free_runner, 1)
         self._tabs.addTab(_v_scroll(free_inner), _FREE_TAB_LABEL)
 
-        # ---- sticky bottom dock ------------------------------------
-        self._dock = BenchProcessDock(process_manager)
-        self._dock.start_requested.connect(self._on_start)
-        self._dock.stop_requested.connect(self._on_stop)
-        self._dock.open_browser_requested.connect(self._on_open_browser_for_url)
-        self._dock.drop_site_requested.connect(self._on_drop_site_from_dock)
-
-        # Tab switches re-target the dock's per-site buttons; the dock
-        # only knows about the *current* site, not the full list.
-        self._tabs.currentChanged.connect(self._on_tab_changed)
-
         # ---- assembly ----------------------------------------------
+        # Each site tab carries its own start/stop/log controls; there's
+        # no global bottom dock.
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._header)
         layout.addWidget(self._tabs, 1)
-        layout.addWidget(self._dock)
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -145,8 +134,6 @@ class BenchDetailView(QWidget):
             python_version=info.python_version,
             git_branch=info.git_branch,
         )
-
-        self._dock.set_bench(path, webserver_port=info.webserver_port)
 
         self._clear_app_cards()
         for app in info.apps:
@@ -189,9 +176,14 @@ class BenchDetailView(QWidget):
             tab = SiteTab(
                 path,
                 site,
+                self._process_manager,
                 webserver_port=info.webserver_port,
                 bench_apps=bench_app_names,
             )
+            tab.start_requested.connect(self._on_start)
+            tab.stop_requested.connect(self._on_stop)
+            tab.open_browser_requested.connect(self._on_open_browser_for_url)
+            tab.drop_site_requested.connect(self._on_drop_site_from_dock)
             insert_at = 1 + offset
             self._tabs.insertTab(insert_at, _v_scroll(tab), site.name)
             self._tabs.setTabToolTip(insert_at, f"Working context: {site.name}")
@@ -200,8 +192,6 @@ class BenchDetailView(QWidget):
 
         if self._tabs.currentIndex() < 0 or self._tabs.currentIndex() > free_index:
             self._tabs.setCurrentIndex(0)
-        # Tab indices may not have changed; force a dock resync.
-        self._on_tab_changed(self._tabs.currentIndex())
 
     # --- bench-process actions ---------------------------------------
 
@@ -216,17 +206,6 @@ class BenchDetailView(QWidget):
     def _on_open_folder(self) -> None:
         if self._current_path is not None:
             open_in_file_manager(self._current_path)
-
-    def _on_tab_changed(self, _index: int) -> None:
-        widget = self._tabs.currentWidget()
-        # Tab widget is the QScrollArea wrapper; the SiteTab lives inside.
-        site_tab = widget.findChild(SiteTab) if widget is not None else None
-        if site_tab is None:
-            self._dock.set_current_site(None)
-            return
-        port = self._info.webserver_port if self._info is not None else 8000
-        url = f"http://{site_tab.site_name}:{port}"
-        self._dock.set_current_site(site_tab.site_name, url)
 
     def _on_open_browser_for_url(self, url: str) -> None:
         from PySide6.QtCore import QUrl

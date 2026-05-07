@@ -1,8 +1,8 @@
 """Bench-action row + bench-process panel + a tiny xdg-open helper.
 
 BenchActionRow + BenchProcessPanel are kept around for back-compat with
-older code paths that haven't migrated to the dock layout. The active
-detail page uses BenchProcessDock instead.
+older code paths. The active bench-detail page now puts the start/stop
++ live log controls inside each SiteTab.
 """
 
 from __future__ import annotations
