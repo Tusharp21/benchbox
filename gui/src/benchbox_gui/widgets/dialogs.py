@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from benchbox_core import preferences
 from benchbox_core.bench import DEFAULT_FRAPPE_BRANCH, DEFAULT_PYTHON_BIN
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -186,12 +187,21 @@ COMMON_FRAPPE_REFS: tuple[str, ...] = (
     "develop",
 )
 
+# Same node majors the installer offers — keeps the two pickers in sync.
+_NODE_MAJORS: tuple[tuple[str, str], ...] = (
+    ("18", "18 — v15, v14"),
+    ("20", "20"),
+    ("22", "22"),
+    ("24", "24 — v16"),
+)
+
 
 @dataclass(frozen=True)
 class NewBenchValues:
     path: Path
     frappe_branch: str
     python_bin: str
+    node_major: str
 
 
 class NewBenchDialog(LiveLogDialog):
@@ -226,11 +236,26 @@ class NewBenchDialog(LiveLogDialog):
 
         self._python = QLineEdit(DEFAULT_PYTHON_BIN)
 
+        # Node major picker — wraps ``bench init`` in ``bash -lc 'nvm use X
+        # && bench init …'`` so the picked Node is active regardless of
+        # which Node the parent shell currently uses.
+        self._node_major = QComboBox()
+        self._node_major.setToolTip(
+            "Frappe v15 needs Node 18, v16 needs Node 24. Run the "
+            "installer with the matching Node version first."
+        )
+        for value, label in _NODE_MAJORS:
+            self._node_major.addItem(label, value)
+        idx = self._node_major.findData(preferences.get_node_major())
+        if idx >= 0:
+            self._node_major.setCurrentIndex(idx)
+
         form = QFormLayout()
         form.setSpacing(10)
         form.addRow("Bench path", path_row)
         form.addRow("Frappe branch", self._branch)
         form.addRow("Python", self._python)
+        form.addRow("Node version", self._node_major)
         self.set_form_layout(form)
 
     def _on_browse(self) -> None:
@@ -245,10 +270,12 @@ class NewBenchDialog(LiveLogDialog):
             QMessageBox.warning(self, "Missing path", "Choose where to create the bench.")
             return None
         branch = self._branch.currentText().strip() or DEFAULT_FRAPPE_BRANCH
+        node_major = self._node_major.currentData() or preferences.DEFAULT_NODE_MAJOR
         return NewBenchValues(
             path=Path(text).expanduser(),
             frappe_branch=branch,
             python_bin=self._python.text().strip() or DEFAULT_PYTHON_BIN,
+            node_major=node_major,
         )
 
     def _build_op(self, values: object) -> Callable[[Callable[[str], None]], Any]:
@@ -261,6 +288,7 @@ class NewBenchDialog(LiveLogDialog):
                 v.path,
                 frappe_branch=v.frappe_branch,
                 python_bin=v.python_bin,
+                node_major=v.node_major,
                 line_callback=line_cb,
             )
 

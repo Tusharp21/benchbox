@@ -125,3 +125,46 @@ def test_create_bench_dry_run_returns_info_none(tmp_path: Path) -> None:
     # dry-run: the command was logged but not executed, so we can't introspect.
     assert result.command.executed is False
     assert result.info is None
+
+
+def test_create_bench_with_node_major_wraps_in_bash_lc(tmp_path: Path) -> None:
+    target = tmp_path / "v16"
+    runner = CapturingRunner(
+        returncode=0,
+        post_run=lambda: _make_bench_layout(target),
+    )
+
+    create_bench(
+        target,
+        frappe_branch="version-16",
+        python_bin="python3.12",
+        node_major="24",
+        runner=runner,
+    )
+
+    argv = runner.commands[0]
+    assert argv[0] == "bash"
+    assert argv[1] == "-lc"
+    # Single script argument; check it contains the right pieces in order.
+    script = argv[2]
+    assert "nvm.sh" in script
+    assert "nvm use 24" in script
+    assert "bench init" in script
+    assert "--frappe-branch version-16" in script
+    assert "--python python3.12" in script
+    assert str(target) in script
+
+
+def test_create_bench_without_node_major_uses_bare_bench_init(tmp_path: Path) -> None:
+    """Sanity-check: omitting ``node_major`` keeps the original argv shape."""
+    target = tmp_path / "v15"
+    runner = CapturingRunner(
+        returncode=0,
+        post_run=lambda: _make_bench_layout(target),
+    )
+
+    create_bench(target, runner=runner)
+
+    argv = runner.commands[0]
+    assert argv[0] == "bench"
+    assert "bash" not in argv

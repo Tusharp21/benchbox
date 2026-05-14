@@ -72,6 +72,24 @@ def test_malformed_persisted_accent_falls_back_to_default(tmp_path: Path) -> Non
     assert preferences.get_accent() == preferences.DEFAULT_ACCENT
 
 
+def test_default_node_major_when_unset() -> None:
+    assert preferences.get_node_major() == "18"
+
+
+def test_set_then_get_roundtrips_node_major() -> None:
+    preferences.set_node_major("24")
+    assert preferences.get_node_major() == "24"
+    preferences.set_node_major("20")
+    assert preferences.get_node_major() == "20"
+
+
+def test_set_node_major_rejects_unknown_value() -> None:
+    with pytest.raises(ValueError):
+        preferences.set_node_major("16")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        preferences.set_node_major("latest")  # type: ignore[arg-type]
+
+
 def test_preferences_file_stays_valid_json(tmp_path: Path) -> None:
     preferences.set_theme("light")
     import json

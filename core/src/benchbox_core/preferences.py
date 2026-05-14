@@ -37,6 +37,13 @@ def is_custom_accent(value: str) -> bool:
     return bool(_HEX_ACCENT_RE.match(value))
 
 
+# Node major versions the installer can provision via nvm. v15 wants 18,
+# v16 wants 24; the others bracket those for future Frappe bumps.
+NodeMajor = Literal["18", "20", "22", "24"]
+DEFAULT_NODE_MAJOR: NodeMajor = "18"
+_VALID_NODE_MAJORS: frozenset[str] = frozenset(("18", "20", "22", "24"))
+
+
 def preferences_path() -> Path:
     return config_dir() / _PREFERENCES_FILENAME
 
@@ -94,16 +101,35 @@ def set_accent(accent: Accent) -> None:
     _save(data)
 
 
+def get_node_major() -> NodeMajor:
+    stored = _load().get("node_major")
+    if isinstance(stored, str) and stored in _VALID_NODE_MAJORS:
+        return stored  # type: ignore[return-value]
+    return DEFAULT_NODE_MAJOR
+
+
+def set_node_major(major: NodeMajor) -> None:
+    if major not in _VALID_NODE_MAJORS:
+        raise ValueError(f"unknown node major: {major!r}")
+    data = _load()
+    data["node_major"] = major
+    _save(data)
+
+
 __all__ = [
     "Accent",
     "DEFAULT_ACCENT",
+    "DEFAULT_NODE_MAJOR",
     "DEFAULT_THEME",
     "ENV_CONFIG_DIR",
+    "NodeMajor",
     "Theme",
     "get_accent",
+    "get_node_major",
     "get_theme",
     "is_custom_accent",
     "preferences_path",
     "set_accent",
+    "set_node_major",
     "set_theme",
 ]

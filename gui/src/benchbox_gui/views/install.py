@@ -5,7 +5,7 @@ from __future__ import annotations
 import platform
 from datetime import datetime
 
-from benchbox_core import credentials, detect, preflight
+from benchbox_core import credentials, detect, preferences, preflight
 from benchbox_core.installer import (
     AptComponent,
     BenchCliComponent,
@@ -19,6 +19,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -29,6 +30,16 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+)
+
+# Major Node versions selectable in the installer. v15 wants 18, v16 wants
+# 24; the in-betweens cover future Frappe bumps without forcing benchbox
+# updates.
+_NODE_MAJOR_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("18", "18 — Frappe v15, v14"),
+    ("20", "20"),
+    ("22", "22"),
+    ("24", "24 — Frappe v16"),
 )
 
 from benchbox_gui.widgets.busy_label import BusyLabel
@@ -100,6 +111,25 @@ class InstallerView(QWidget):
         self._busy.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._busy.setVisible(False)
 
+        # Node major picker — flows into NodeComponent(node_major=...). Re-
+        # probes on change so the Node card's "installed" state reflects the
+        # selected version, not whatever was installed last.
+        node_label = QLabel("Node version:")
+        node_label.setProperty("role", "dim")
+        self._node_major = QComboBox()
+        self._node_major.setMinimumWidth(170)
+        self._node_major.setToolTip(
+            "Which Node major to install via nvm. Frappe v15 needs 18, "
+            "v16 needs 24. Multiple Node versions can coexist."
+        )
+        current_major = preferences.get_node_major()
+        for value, label in _NODE_MAJOR_OPTIONS:
+            self._node_major.addItem(label, value)
+        idx = self._node_major.findData(current_major)
+        if idx >= 0:
+            self._node_major.setCurrentIndex(idx)
+        self._node_major.currentIndexChanged.connect(self._on_node_major_changed)
+
         self._dry_run = QCheckBox("Dry run (preview only)")
         self._refresh = QPushButton("Refresh status")
         self._refresh.setProperty("role", "ghost")
@@ -114,6 +144,9 @@ class InstallerView(QWidget):
         self._run.setMinimumHeight(34)
         self._run.clicked.connect(self._on_run_clicked)
         controls = QHBoxLayout()
+        controls.addWidget(node_label)
+        controls.addWidget(self._node_major)
+        controls.addSpacing(16)
         controls.addWidget(self._dry_run)
         controls.addStretch(1)
         controls.addWidget(self._refresh)
@@ -244,14 +277,27 @@ class InstallerView(QWidget):
 
     def _build_components(self, password: str) -> list[Component]:
         info = detect.detect_os()
+        node_major = self._node_major.currentData() or preferences.DEFAULT_NODE_MAJOR
         return [
             AptComponent(),
             MariaDBComponent(root_password=password),
             RedisComponent(),
-            NodeComponent(),
+            NodeComponent(node_major=node_major),
             WkhtmltopdfComponent(ubuntu_version=info.version_id, machine_arch=platform.machine()),
             BenchCliComponent(),
         ]
+
+    def _on_node_major_changed(self, _index: int) -> None:
+        major = self._node_major.currentData()
+        if not major:
+            return
+        try:
+            preferences.set_node_major(major)
+        except ValueError:
+            return
+        # Re-probe so the Node card reflects whether the newly-selected
+        # major is already installed via nvm or not.
+        self._refresh_components()
 
     # --- run ---------------------------------------------------------
 

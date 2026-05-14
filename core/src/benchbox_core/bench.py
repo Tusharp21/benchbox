@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,35 @@ from benchbox_core.introspect import BenchInfo, introspect
 
 DEFAULT_FRAPPE_BRANCH: str = "version-15"
 DEFAULT_PYTHON_BIN: str = "python3"
+# Match ``installer.node.NodeComponent.nvm_dir`` so the wrapper script
+# sources the same nvm install that benchbox provisioned.
+DEFAULT_NVM_DIR: Path = Path.home() / ".nvm"
+
+
+def _bench_init_via_nvm(
+    path: Path,
+    frappe_branch: str,
+    python_bin: str,
+    node_major: str,
+    nvm_dir: Path,
+) -> tuple[str, ...]:
+    """Build a ``bash -lc`` invocation that sources nvm and runs ``bench init``.
+
+    Wrapping is needed when the GUI's parent shell doesn't have the right
+    Node major active — e.g. user installed Node 24 for Frappe v16 but
+    launched benchbox from a terminal where ``nvm use 18`` was last
+    called. ``bash -lc`` runs a login shell so ``~/.profile`` (where nvm
+    and pipx put their PATH entries) is sourced.
+    """
+    script = (
+        f"export NVM_DIR={shlex.quote(str(nvm_dir))}"
+        f' && . "$NVM_DIR/nvm.sh"'
+        f" && nvm use {shlex.quote(node_major)}"
+        f" && bench init {shlex.quote(str(path))}"
+        f" --frappe-branch {shlex.quote(frappe_branch)}"
+        f" --python {shlex.quote(python_bin)}"
+    )
+    return ("bash", "-lc", script)
 
 
 class BenchAlreadyExistsError(RuntimeError):
@@ -38,6 +68,8 @@ def create_bench(
     *,
     frappe_branch: str = DEFAULT_FRAPPE_BRANCH,
     python_bin: str = DEFAULT_PYTHON_BIN,
+    node_major: str | None = None,
+    nvm_dir: Path | None = None,
     runner: CommandRunner | None = None,
     line_callback: Callable[[str], None] | None = None,
 ) -> BenchCreateResult:
@@ -53,8 +85,16 @@ def create_bench(
 
     active = runner if runner is not None else CommandRunner()
 
-    result = active.run(
-        [
+    if node_major:
+        command: tuple[str, ...] | list[str] = _bench_init_via_nvm(
+            path=path,
+            frappe_branch=frappe_branch,
+            python_bin=python_bin,
+            node_major=node_major,
+            nvm_dir=nvm_dir or DEFAULT_NVM_DIR,
+        )
+    else:
+        command = [
             "bench",
             "init",
             str(path),
@@ -62,9 +102,9 @@ def create_bench(
             frappe_branch,
             "--python",
             python_bin,
-        ],
-        line_callback=line_callback,
-    )
+        ]
+
+    result = active.run(command, line_callback=line_callback)
 
     if not result.executed:
         return BenchCreateResult(command=result, info=None)
