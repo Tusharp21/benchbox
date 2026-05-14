@@ -9,8 +9,9 @@ from pathlib import Path
 from benchbox_core import __version__ as core_version
 from benchbox_core import credentials, logs, preferences
 from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
+    QColorDialog,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -22,13 +23,13 @@ from PySide6.QtWidgets import (
 )
 
 from benchbox_gui import __version__ as gui_version
-from benchbox_gui.resources import ACCENT_BASE
+from benchbox_gui.resources import ACCENT_BASE, accent_color
 from benchbox_gui.widgets.card import Card
 from benchbox_gui.widgets.dialogs import confirm
 
 # Display order for accent swatches — purple is the default, then a cool→
 # warm progression so users see a sensible spectrum.
-_ACCENT_ORDER: tuple[preferences.Accent, ...] = (
+_ACCENT_ORDER: tuple[str, ...] = (
     "purple", "blue", "green", "orange", "pink", "red",
 )
 
@@ -123,14 +124,15 @@ class SettingsView(QWidget):
         card.addWidget(heading)
 
         caption = QLabel(
-            "Pick an accent color. The base purple is replaced everywhere "
-            "the UI uses it — buttons, badges, focus rings."
+            "Pick an accent color. Click a preset or use Custom for any "
+            "color you like. Replaces purple everywhere the UI uses it — "
+            "buttons, badges, focus rings."
         )
         caption.setProperty("role", "dim")
         caption.setWordWrap(True)
         card.addWidget(caption)
 
-        self._swatches: dict[preferences.Accent, QPushButton] = {}
+        self._swatches: dict[str, QPushButton] = {}
         theme = preferences.get_theme()
         current = preferences.get_accent()
 
@@ -142,15 +144,21 @@ class SettingsView(QWidget):
             swatch.setFixedSize(36, 36)
             swatch.setCursor(Qt.CursorShape.PointingHandCursor)
             swatch.setToolTip(name.capitalize())
-            swatch.setStyleSheet(
-                f"QPushButton {{ background-color: {color}; color: white; "
-                f"border-radius: 18px; border: none; "
-                f"font-size: 14pt; font-weight: 700; }}"
-                f"QPushButton:hover {{ background-color: {color}; }}"
-            )
+            swatch.setStyleSheet(self._swatch_qss(color))
             swatch.clicked.connect(self._make_swatch_handler(name))
             self._swatches[name] = swatch
             row.addWidget(swatch)
+
+        # Custom color picker — sits at the end of the swatch row. Shows
+        # a dashed-border "+" by default, or fills with the picked color
+        # (and a check mark) once the user has chosen something custom.
+        self._custom_btn = QPushButton("")
+        self._custom_btn.setFixedSize(36, 36)
+        self._custom_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._custom_btn.setToolTip("Pick a custom color…")
+        self._custom_btn.clicked.connect(self._on_custom_picker_clicked)
+        self._restyle_custom_button()
+        row.addWidget(self._custom_btn)
         row.addStretch(1)
 
         row_widget = QWidget()
@@ -158,20 +166,57 @@ class SettingsView(QWidget):
         card.addWidget(row_widget)
         return card
 
-    def _make_swatch_handler(self, name: preferences.Accent):
+    @staticmethod
+    def _swatch_qss(color: str) -> str:
+        return (
+            f"QPushButton {{ background-color: {color}; color: white; "
+            f"border-radius: 18px; border: none; "
+            f"font-size: 14pt; font-weight: 700; }}"
+            f"QPushButton:hover {{ background-color: {color}; }}"
+        )
+
+    def _make_swatch_handler(self, name: str):
         def handler() -> None:
-            self._on_accent_picked(name)
+            self._apply_accent(name)
 
         return handler
 
-    def _on_accent_picked(self, name: preferences.Accent) -> None:
+    def _on_custom_picker_clicked(self) -> None:
+        current = preferences.get_accent()
+        seed_hex = (
+            current
+            if preferences.is_custom_accent(current)
+            else accent_color(current, preferences.get_theme())
+        )
+        picked = QColorDialog.getColor(QColor(seed_hex), self, "Pick accent color")
+        if not picked.isValid():
+            return
+        self._apply_accent(picked.name())  # "#rrggbb"
+
+    def _apply_accent(self, name: str) -> None:
         if name == preferences.get_accent():
             return
         preferences.set_accent(name)
-        # Repaint the checkmark on every swatch.
+        # Repaint the checkmark on every preset swatch and the custom button.
         for accent_name, swatch in self._swatches.items():
             swatch.setText("✓" if accent_name == name else "")
+        self._restyle_custom_button()
         self.accent_changed.emit(name)
+
+    def _restyle_custom_button(self) -> None:
+        current = preferences.get_accent()
+        if preferences.is_custom_accent(current):
+            self._custom_btn.setText("✓")
+            self._custom_btn.setStyleSheet(self._swatch_qss(current))
+        else:
+            # Dashed outline with "+" — clearly a "pick something else" affordance.
+            self._custom_btn.setText("+")
+            self._custom_btn.setStyleSheet(
+                "QPushButton { background-color: transparent; color: palette(text); "
+                "border: 2px dashed palette(mid); border-radius: 18px; "
+                "font-size: 18pt; font-weight: 700; }"
+                "QPushButton:hover { border-color: palette(text); }"
+            )
 
     # --- credentials --------------------------------------------------
 

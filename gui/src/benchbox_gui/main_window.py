@@ -168,9 +168,9 @@ class MainWindow(QMainWindow):
         return view
 
     def _on_accent_changed(self, name: str) -> None:
-        if name not in {"purple", "blue", "green", "orange", "pink", "red"}:
-            return
-        self.apply_accent(name)  # type: ignore[arg-type]
+        # Both preset names and ``#rrggbb`` hex values flow through here —
+        # SettingsView has already persisted + validated, so just repaint.
+        self.apply_accent(name)
 
     # --- theme -------------------------------------------------------
 

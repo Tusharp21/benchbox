@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -14,11 +15,26 @@ _PREFERENCES_FILENAME: str = "preferences.json"
 Theme = Literal["dark", "light"]
 DEFAULT_THEME: Theme = "dark"
 
-Accent = Literal["purple", "blue", "green", "orange", "pink", "red"]
+# Accent is either one of the named presets below, or a free-form
+# ``#rrggbb`` hex picked via the custom color dialog. Kept as ``str`` so
+# both shapes round-trip through the same getter/setter.
+Accent = str
 DEFAULT_ACCENT: Accent = "purple"
-_VALID_ACCENTS: frozenset[str] = frozenset(
+_PRESET_ACCENTS: frozenset[str] = frozenset(
     ("purple", "blue", "green", "orange", "pink", "red")
 )
+_HEX_ACCENT_RE: re.Pattern[str] = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _is_valid_accent(value: object) -> bool:
+    return isinstance(value, str) and (
+        value in _PRESET_ACCENTS or bool(_HEX_ACCENT_RE.match(value))
+    )
+
+
+def is_custom_accent(value: str) -> bool:
+    """True if ``value`` is a free-form hex color rather than a preset name."""
+    return bool(_HEX_ACCENT_RE.match(value))
 
 
 def preferences_path() -> Path:
@@ -65,13 +81,13 @@ def set_theme(theme: Theme) -> None:
 
 def get_accent() -> Accent:
     stored = _load().get("accent")
-    if isinstance(stored, str) and stored in _VALID_ACCENTS:
+    if _is_valid_accent(stored):
         return stored  # type: ignore[return-value]
     return DEFAULT_ACCENT
 
 
 def set_accent(accent: Accent) -> None:
-    if accent not in _VALID_ACCENTS:
+    if not _is_valid_accent(accent):
         raise ValueError(f"unknown accent: {accent!r}")
     data = _load()
     data["accent"] = accent
@@ -86,6 +102,7 @@ __all__ = [
     "Theme",
     "get_accent",
     "get_theme",
+    "is_custom_accent",
     "preferences_path",
     "set_accent",
     "set_theme",

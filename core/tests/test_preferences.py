@@ -51,6 +51,27 @@ def test_theme_and_accent_persist_independently() -> None:
     assert preferences.get_accent() == "red"
 
 
+def test_custom_hex_accent_roundtrips() -> None:
+    preferences.set_accent("#ff8800")
+    assert preferences.get_accent() == "#ff8800"
+    assert preferences.is_custom_accent("#ff8800") is True
+    assert preferences.is_custom_accent("purple") is False
+
+
+def test_set_accent_rejects_malformed_hex() -> None:
+    for bad in ("#abc", "ff8800", "#gggggg", "#1234567"):
+        with pytest.raises(ValueError):
+            preferences.set_accent(bad)
+
+
+def test_malformed_persisted_accent_falls_back_to_default(tmp_path: Path) -> None:
+    import json
+    path = preferences.preferences_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"accent": "not-a-color"}), encoding="utf-8")
+    assert preferences.get_accent() == preferences.DEFAULT_ACCENT
+
+
 def test_preferences_file_stays_valid_json(tmp_path: Path) -> None:
     preferences.set_theme("light")
     import json
