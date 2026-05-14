@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from benchbox_core import credentials, database
-from benchbox_core.database import DatabaseError, DatabaseInfo, summarize
+from benchbox_core.database import DatabaseInfo, summarize
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from benchbox_gui.widgets.busy_label import BusyLabel
 from benchbox_gui.widgets.dialogs import TypedNameConfirmDialog
 from benchbox_gui.workers import OperationWorker
 
@@ -85,6 +86,7 @@ class DatabasesView(QWidget):
         self._filter: str = ""
         self._status_filter: str = _STATUS_ALL
         self._worker: OperationWorker | None = None
+        self._load_worker: OperationWorker | None = None
         self._progress: QProgressDialog | None = None
 
         title = QLabel("Databases")
@@ -96,9 +98,9 @@ class DatabasesView(QWidget):
         subtitle.setProperty("role", "dim")
         subtitle.setWordWrap(True)
 
-        refresh = QPushButton("Refresh")
-        refresh.setProperty("role", "ghost")
-        refresh.clicked.connect(self.refresh)
+        self._refresh_btn = QPushButton("Refresh")
+        self._refresh_btn.setProperty("role", "ghost")
+        self._refresh_btn.clicked.connect(self.refresh)
 
         header_text = QVBoxLayout()
         header_text.setSpacing(2)
@@ -107,7 +109,7 @@ class DatabasesView(QWidget):
 
         header = QHBoxLayout()
         header.addLayout(header_text, 1)
-        header.addWidget(refresh, 0, Qt.AlignmentFlag.AlignTop)
+        header.addWidget(self._refresh_btn, 0, Qt.AlignmentFlag.AlignTop)
 
         # Filter toolbar.
         filter_label = QLabel("Filter:")
@@ -193,6 +195,15 @@ class DatabasesView(QWidget):
         self._notice.setWordWrap(True)
         self._notice.setVisible(False)
 
+        # Animated "Loading databases…" indicator shown while the worker
+        # thread queries MariaDB. Keeps the GUI responsive instead of the
+        # OS putting up the "Application not responding" dialog when the
+        # mysql call is slow.
+        self._loading = BusyLabel()
+        self._loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading.setProperty("role", "dim")
+        self._loading.setVisible(False)
+
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(14)
@@ -201,6 +212,7 @@ class DatabasesView(QWidget):
         root.addWidget(self._table, 1)
         root.addWidget(self._footer)
         root.addWidget(self._notice)
+        root.addWidget(self._loading)
 
         self.refresh()
 
@@ -211,6 +223,10 @@ class DatabasesView(QWidget):
         return self._table.rowCount()
 
     def refresh(self) -> None:
+        # Re-entry guard — rapid Refresh clicks would otherwise stack workers.
+        if self._load_worker is not None and self._load_worker.isRunning():
+            return
+
         password = credentials.get_mariadb_root_password()
         if password is None:
             self._databases = []
@@ -220,20 +236,60 @@ class DatabasesView(QWidget):
                 "<p style='color:#a9a9c4;'>Run the installer or set the password "
                 "in <b>Settings</b> to view databases.</p>"
             )
+            self.refreshed.emit()
             return
-        try:
-            self._databases = database.list_databases(db_root_password=password)
-        except DatabaseError as exc:
-            self._databases = []
-            self._render()
-            self._show_notice(
-                f"<p>Could not query MariaDB.</p>"
-                f"<p style='color:#a9a9c4;'>{exc}</p>"
-            )
-            return
-        self._hide_notice()
+
+        # The mysql shell-out can block for many seconds when MariaDB is
+        # warming its InnoDB buffer pool or paged out — run it off-thread so
+        # the GUI stays responsive (no "Application not responding" dialog).
+        self._show_loading()
+
+        def op() -> list[DatabaseInfo]:
+            return database.list_databases(db_root_password=password)
+
+        self._load_worker = OperationWorker(op)
+        self._load_worker.succeeded.connect(self._on_load_succeeded)
+        self._load_worker.failed.connect(self._on_load_failed)
+        self._load_worker.start()
+
+    # --- load lifecycle ----------------------------------------------
+
+    def _show_loading(self) -> None:
+        self._refresh_btn.setEnabled(False)
+        self._notice.setVisible(False)
+        self._table.setVisible(False)
+        self._footer.setVisible(False)
+        self._loading.setVisible(True)
+        self._loading.set_busy("Loading databases")
+
+    def _hide_loading(self) -> None:
+        self._loading.set_idle("")
+        self._loading.setVisible(False)
+        self._refresh_btn.setEnabled(True)
+
+    def _on_load_succeeded(self, result: object) -> None:
+        self._hide_loading()
+        rows = list(result) if isinstance(result, list) else []
+        self._databases = rows
+        self._table.setVisible(True)
+        self._footer.setVisible(True)
         self._render()
         self.refreshed.emit()
+
+    def _on_load_failed(self, exc: object) -> None:
+        self._hide_loading()
+        self._databases = []
+        self._render()
+        self._show_notice(
+            f"<p>Could not query MariaDB.</p>"
+            f"<p style='color:#a9a9c4;'>{exc}</p>"
+        )
+        self.refreshed.emit()
+
+    def shutdown(self) -> None:
+        if self._load_worker is not None and self._load_worker.isRunning():
+            self._load_worker.quit()
+            self._load_worker.wait(2000)
 
     # --- filter handlers --------------------------------------------
 

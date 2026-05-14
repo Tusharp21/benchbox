@@ -14,6 +14,12 @@ _PREFERENCES_FILENAME: str = "preferences.json"
 Theme = Literal["dark", "light"]
 DEFAULT_THEME: Theme = "dark"
 
+Accent = Literal["purple", "blue", "green", "orange", "pink", "red"]
+DEFAULT_ACCENT: Accent = "purple"
+_VALID_ACCENTS: frozenset[str] = frozenset(
+    ("purple", "blue", "green", "orange", "pink", "red")
+)
+
 
 def preferences_path() -> Path:
     return config_dir() / _PREFERENCES_FILENAME
@@ -57,11 +63,30 @@ def set_theme(theme: Theme) -> None:
     _save(data)
 
 
+def get_accent() -> Accent:
+    stored = _load().get("accent")
+    if isinstance(stored, str) and stored in _VALID_ACCENTS:
+        return stored  # type: ignore[return-value]
+    return DEFAULT_ACCENT
+
+
+def set_accent(accent: Accent) -> None:
+    if accent not in _VALID_ACCENTS:
+        raise ValueError(f"unknown accent: {accent!r}")
+    data = _load()
+    data["accent"] = accent
+    _save(data)
+
+
 __all__ = [
+    "Accent",
+    "DEFAULT_ACCENT",
     "DEFAULT_THEME",
     "ENV_CONFIG_DIR",
     "Theme",
+    "get_accent",
     "get_theme",
     "preferences_path",
+    "set_accent",
     "set_theme",
 ]

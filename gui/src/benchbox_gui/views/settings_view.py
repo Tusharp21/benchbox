@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 
 from benchbox_core import __version__ as core_version
-from benchbox_core import credentials, logs
-from PySide6.QtCore import Qt, QUrl
+from benchbox_core import credentials, logs, preferences
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -22,8 +22,15 @@ from PySide6.QtWidgets import (
 )
 
 from benchbox_gui import __version__ as gui_version
+from benchbox_gui.resources import ACCENT_BASE
 from benchbox_gui.widgets.card import Card
 from benchbox_gui.widgets.dialogs import confirm
+
+# Display order for accent swatches — purple is the default, then a cool→
+# warm progression so users see a sensible spectrum.
+_ACCENT_ORDER: tuple[preferences.Accent, ...] = (
+    "purple", "blue", "green", "orange", "pink", "red",
+)
 
 _GREEN = "#50fa7b"
 _RED = "#ff5555"
@@ -77,6 +84,8 @@ def _venv_prefix() -> Path:
 
 
 class SettingsView(QWidget):
+    accent_changed = Signal(str)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
@@ -90,6 +99,7 @@ class SettingsView(QWidget):
         header_text.addWidget(title)
         header_text.addWidget(subtitle)
 
+        appearance_card = self._build_appearance_card()
         cred_card = self._build_credentials_card()
         paths_card = self._build_paths_card()
         about_card = self._build_about_card()
@@ -98,10 +108,70 @@ class SettingsView(QWidget):
         root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(14)
         root.addLayout(header_text)
+        root.addWidget(appearance_card)
         root.addWidget(cred_card)
         root.addWidget(paths_card)
         root.addWidget(about_card)
         root.addStretch(1)
+
+    # --- appearance ---------------------------------------------------
+
+    def _build_appearance_card(self) -> Card:
+        card = Card()
+        heading = QLabel("Appearance")
+        heading.setProperty("role", "h2")
+        card.addWidget(heading)
+
+        caption = QLabel(
+            "Pick an accent color. The base purple is replaced everywhere "
+            "the UI uses it — buttons, badges, focus rings."
+        )
+        caption.setProperty("role", "dim")
+        caption.setWordWrap(True)
+        card.addWidget(caption)
+
+        self._swatches: dict[preferences.Accent, QPushButton] = {}
+        theme = preferences.get_theme()
+        current = preferences.get_accent()
+
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        for name in _ACCENT_ORDER:
+            color = ACCENT_BASE[name][theme]
+            swatch = QPushButton("✓" if name == current else "")
+            swatch.setFixedSize(36, 36)
+            swatch.setCursor(Qt.CursorShape.PointingHandCursor)
+            swatch.setToolTip(name.capitalize())
+            swatch.setStyleSheet(
+                f"QPushButton {{ background-color: {color}; color: white; "
+                f"border-radius: 18px; border: none; "
+                f"font-size: 14pt; font-weight: 700; }}"
+                f"QPushButton:hover {{ background-color: {color}; }}"
+            )
+            swatch.clicked.connect(self._make_swatch_handler(name))
+            self._swatches[name] = swatch
+            row.addWidget(swatch)
+        row.addStretch(1)
+
+        row_widget = QWidget()
+        row_widget.setLayout(row)
+        card.addWidget(row_widget)
+        return card
+
+    def _make_swatch_handler(self, name: preferences.Accent):
+        def handler() -> None:
+            self._on_accent_picked(name)
+
+        return handler
+
+    def _on_accent_picked(self, name: preferences.Accent) -> None:
+        if name == preferences.get_accent():
+            return
+        preferences.set_accent(name)
+        # Repaint the checkmark on every swatch.
+        for accent_name, swatch in self._swatches.items():
+            swatch.setText("✓" if accent_name == name else "")
+        self.accent_changed.emit(name)
 
     # --- credentials --------------------------------------------------
 

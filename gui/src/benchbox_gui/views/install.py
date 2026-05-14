@@ -25,13 +25,13 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
-    QProgressBar,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
+from benchbox_gui.widgets.busy_label import BusyLabel
 from benchbox_gui.widgets.card_grid import CardGrid
 from benchbox_gui.widgets.component_card import ComponentCard
 from benchbox_gui.widgets.preflight_strip import PreflightStrip
@@ -95,9 +95,10 @@ class InstallerView(QWidget):
         self._log.setMinimumHeight(160)
         self._log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)  # indeterminate until first component
-        self._progress.setVisible(False)
+        self._busy = BusyLabel()
+        self._busy.setProperty("role", "dim")
+        self._busy.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._busy.setVisible(False)
 
         self._dry_run = QCheckBox("Dry run (preview only)")
         self._refresh = QPushButton("Refresh status")
@@ -135,7 +136,7 @@ class InstallerView(QWidget):
         layout.addSpacing(4)
         layout.addWidget(_section_header("Install log"))
         layout.addWidget(self._log, 1)
-        layout.addWidget(self._progress)
+        layout.addWidget(self._busy)
         layout.addLayout(controls)
 
         self._worker: InstallWorker | None = None
@@ -266,9 +267,8 @@ class InstallerView(QWidget):
                 card.set_state("queued")
 
         self._run.setEnabled(False)
-        self._progress.setVisible(True)
-        self._progress.setRange(0, len(components))
-        self._progress.setValue(0)
+        self._busy.setVisible(True)
+        self._busy.set_busy("Installing")
 
         mode = "dry run" if self._dry_run.isChecked() else "live run"
         self._append_log(f"--- starting install ({mode}) ---")
@@ -283,7 +283,7 @@ class InstallerView(QWidget):
         card = self._cards.get(name)
         if card is not None:
             card.set_state("running")
-        self._progress.setValue(index)
+        self._busy.set_busy(f"Installing {name}")
         self._append_log(f"running {name}")
 
     def _on_component_finished(self, name: str, ok: bool) -> None:
@@ -293,7 +293,8 @@ class InstallerView(QWidget):
         self._append_log(name + (" done" if ok else " failed"))
 
     def _on_install_finished(self, result: object) -> None:
-        self._progress.setVisible(False)
+        self._busy.set_idle("")
+        self._busy.setVisible(False)
         self._run.setEnabled(True)
         from benchbox_core.installer import InstallResult
 

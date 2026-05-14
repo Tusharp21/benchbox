@@ -66,9 +66,7 @@ class MainWindow(QMainWindow):
             "docs": self._build_lazy(
                 "benchbox_gui.views.docs_view", "DocumentationView"
             ),
-            "settings": self._build_lazy(
-                "benchbox_gui.views.settings_view", "SettingsView"
-            ),
+            "settings": self._build_settings,
         }
 
         # Benches is the default landing page, so build it eagerly.
@@ -162,6 +160,18 @@ class MainWindow(QMainWindow):
         self._installer = InstallerView()
         return self._installer
 
+    def _build_settings(self) -> QWidget:
+        from benchbox_gui.views.settings_view import SettingsView
+
+        view = SettingsView()
+        view.accent_changed.connect(self._on_accent_changed)
+        return view
+
+    def _on_accent_changed(self, name: str) -> None:
+        if name not in {"purple", "blue", "green", "orange", "pink", "red"}:
+            return
+        self.apply_accent(name)  # type: ignore[arg-type]
+
     # --- theme -------------------------------------------------------
 
     def _on_theme_toggled(self, theme: str) -> None:
@@ -172,7 +182,7 @@ class MainWindow(QMainWindow):
 
         app = QApplication.instance()
         if isinstance(app, QApplication):
-            app.setStyleSheet(stylesheet(typed_theme))
+            app.setStyleSheet(stylesheet(typed_theme, preferences.get_accent()))
 
         for row, (_, _, icon_name) in enumerate(_SIDEBAR_ENTRIES):
             item = self._sidebar.item(row)
@@ -181,14 +191,26 @@ class MainWindow(QMainWindow):
 
         preferences.set_theme(typed_theme)
 
+    def apply_accent(self, accent: preferences.Accent) -> None:
+        """Re-skin every live widget with the new accent color."""
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            app.setStyleSheet(stylesheet(self._theme, accent))
+
     # --- shutdown ----------------------------------------------------
 
     def shutdown_processes(self) -> None:
         self._process_manager.stop_all()
-        for view in (self._bench_detail, self._installer):
-            if view is None:
+        # Walk every built widget in the stack and ping its shutdown() hook
+        # if it has one. Catches DatabasesView, InstallerView, BenchDetailView,
+        # plus any future page that owns a background worker.
+        seen: set[int] = set()
+        for i in range(self._stack.count()):
+            widget = self._stack.widget(i)
+            if widget is None or id(widget) in seen:
                 continue
-            shutdown = getattr(view, "shutdown", None)
+            seen.add(id(widget))
+            shutdown = getattr(widget, "shutdown", None)
             if callable(shutdown):
                 shutdown()
 

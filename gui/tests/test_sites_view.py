@@ -14,6 +14,8 @@ from benchbox_gui.widgets.bench_summary_card import BenchSummaryCard, SiteRow
 from benchbox_gui.widgets.dialogs import TypedNameConfirmDialog
 from benchbox_gui.widgets.site_card import SiteCard
 
+from .conftest import await_initial_load
+
 
 def _make_bench_with_site(bench_path: Path, site_name: str) -> None:
     (bench_path / "apps" / "frappe" / "frappe").mkdir(parents=True, exist_ok=True)
@@ -43,6 +45,7 @@ def test_sites_view_renders_one_card_per_site(
 
     view = SitesView()
     qtbot.addWidget(view)
+    await_initial_load(qtbot, view)
 
     assert view.card_count == 2
     summary_cards = view.findChildren(BenchSummaryCard)
@@ -58,6 +61,7 @@ def test_sites_view_empty_state_when_no_benches(
     monkeypatch.setattr(core_discovery, "discover_benches", lambda **kw: [])
     view = SitesView()
     qtbot.addWidget(view)
+    await_initial_load(qtbot, view)
 
     assert view.card_count == 0
     assert view._scroll.isHidden() is True  # noqa: SLF001

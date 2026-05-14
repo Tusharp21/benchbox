@@ -21,8 +21,10 @@ from PySide6.QtWidgets import (
 
 from benchbox_gui.services.bench_processes import BenchProcessManager
 from benchbox_gui.widgets.bench_card import BenchCard
+from benchbox_gui.widgets.busy_label import BusyLabel
 from benchbox_gui.widgets.card_grid import CardGrid
 from benchbox_gui.widgets.dialogs import NewBenchDialog
+from benchbox_gui.workers import OperationWorker
 
 
 class BenchListView(QWidget):
@@ -39,16 +41,17 @@ class BenchListView(QWidget):
         self._cards_by_path: dict[Path, BenchCard] = {}
         self._filter: str = ""
         self._running_only: bool = False
+        self._load_worker: OperationWorker | None = None
 
         title = QLabel("Benches on this machine")
         title.setProperty("role", "h1")
         subtitle = QLabel("Click a card to open its detail view")
         subtitle.setProperty("role", "dim")
 
-        refresh = QPushButton("Refresh")
-        refresh.setProperty("role", "ghost")
-        refresh.setCursor(Qt.CursorShape.PointingHandCursor)
-        refresh.clicked.connect(self.refresh)
+        self._refresh_btn = QPushButton("Refresh")
+        self._refresh_btn.setProperty("role", "ghost")
+        self._refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._refresh_btn.clicked.connect(self.refresh)
 
         self._new_bench = QPushButton("New bench")
         self._new_bench.setProperty("role", "primary")
@@ -63,7 +66,7 @@ class BenchListView(QWidget):
         header = QHBoxLayout()
         header.setSpacing(10)
         header.addLayout(header_text, 1)
-        header.addWidget(refresh, 0, Qt.AlignmentFlag.AlignTop)
+        header.addWidget(self._refresh_btn, 0, Qt.AlignmentFlag.AlignTop)
         header.addWidget(self._new_bench, 0, Qt.AlignmentFlag.AlignTop)
 
         # Filter toolbar — visually grouped so it reads as "controls for the
@@ -108,6 +111,11 @@ class BenchListView(QWidget):
         self._no_results.setProperty("role", "dim")
         self._no_results.setVisible(False)
 
+        self._loading = BusyLabel()
+        self._loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading.setProperty("role", "dim")
+        self._loading.setVisible(False)
+
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(14)
@@ -116,6 +124,7 @@ class BenchListView(QWidget):
         root.addWidget(self._scroll, 1)
         root.addWidget(self._no_results)
         root.addWidget(self._empty)
+        root.addWidget(self._loading)
 
         # Subscribe once — running chips stay in sync across start/stop
         # regardless of whether the user is looking at the list or a
@@ -132,22 +141,66 @@ class BenchListView(QWidget):
         return self._grid.card_count()
 
     def refresh(self) -> None:
-        paths = discovery.discover_benches()
+        if self._load_worker is not None and self._load_worker.isRunning():
+            return
+
+        self._show_loading()
+
+        def op() -> list[introspect.BenchInfo]:
+            return [introspect.introspect(p) for p in discovery.discover_benches()]
+
+        self._load_worker = OperationWorker(op)
+        self._load_worker.succeeded.connect(self._on_load_succeeded)
+        self._load_worker.failed.connect(self._on_load_failed)
+        self._load_worker.start()
+
+    def _show_loading(self) -> None:
+        self._refresh_btn.setEnabled(False)
+        self._scroll.setVisible(False)
+        self._empty.setVisible(False)
+        self._no_results.setVisible(False)
+        self._loading.setVisible(True)
+        self._loading.set_busy("Loading benches")
+
+    def _hide_loading(self) -> None:
+        self._loading.set_idle("")
+        self._loading.setVisible(False)
+        self._refresh_btn.setEnabled(True)
+
+    def _on_load_succeeded(self, result: object) -> None:
+        self._hide_loading()
+        infos = list(result) if isinstance(result, list) else []
         self._cards_by_path = {}
         cards: list[QWidget] = []
-        for path in paths:
-            info = introspect.introspect(path)
-            card = BenchCard(info, running=self._manager.is_running(path))
+        for info in infos:
+            card = BenchCard(info, running=self._manager.is_running(info.path))
             card.opened.connect(self.bench_selected.emit)
             self._cards_by_path[info.path] = card
             cards.append(card)
         self._grid.set_cards(cards)
 
-        has_benches = bool(paths)
+        has_benches = bool(infos)
         self._scroll.setVisible(has_benches)
         self._empty.setVisible(not has_benches)
         self._apply_filter()
         self.refresh_requested.emit()
+
+    def _on_load_failed(self, exc: object) -> None:
+        self._hide_loading()
+        self._cards_by_path = {}
+        self._grid.set_cards([])
+        self._scroll.setVisible(False)
+        self._empty.setText(
+            f"<p>Could not list benches.</p>"
+            f"<p style='color:#a9a9c4;'>{exc}</p>"
+        )
+        self._empty.setVisible(True)
+        self.refresh_requested.emit()
+
+    def shutdown(self) -> None:
+        if self._load_worker is not None and self._load_worker.isRunning():
+            self._load_worker.quit()
+            self._load_worker.wait(2000)
 
     # --- filter ------------------------------------------------------
 

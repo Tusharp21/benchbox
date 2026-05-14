@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 Theme = Literal["dark", "light"]
+Accent = Literal["purple", "blue", "green", "orange", "pink", "red"]
 
 # Default icon tint per theme. Overridable per-call via the ``color`` kwarg
 # on :func:`icon`.
@@ -24,11 +25,38 @@ _ICON_TINT: dict[Theme, str] = {
     "light": "#656d76",
 }
 
+# Preset accent palette. The base color flows into every QSS rule via the
+# ``{accent}`` token; ``{accent_hover}`` is derived as a brightness shift so
+# we don't have to hand-pick a hover variant per accent × theme.
+ACCENT_BASE: dict[Accent, dict[Theme, str]] = {
+    "purple": {"dark": "#bd93f9", "light": "#8250df"},
+    "blue":   {"dark": "#8be9fd", "light": "#0969da"},
+    "green":  {"dark": "#50fa7b", "light": "#1a7f37"},
+    "orange": {"dark": "#ffb86c", "light": "#bc4c00"},
+    "pink":   {"dark": "#ff79c6", "light": "#bf3989"},
+    "red":    {"dark": "#ff5555", "light": "#cf222e"},
+}
 
-@lru_cache(maxsize=2)
-def stylesheet(theme: Theme = "dark") -> str:
+
+def accent_color(accent: Accent, theme: Theme) -> str:
+    return ACCENT_BASE[accent][theme]
+
+
+def _accent_hover(accent: Accent, theme: Theme) -> str:
+    base = QColor(ACCENT_BASE[accent][theme])
+    # Dark theme bg is dark, so hover stands out by getting lighter; light
+    # theme bg is bright, so hover stands out by getting darker.
+    shifted = base.lighter(115) if theme == "dark" else base.darker(115)
+    return shifted.name()
+
+
+@lru_cache(maxsize=16)
+def stylesheet(theme: Theme = "dark", accent: Accent = "purple") -> str:
     filename = "style.qss" if theme == "dark" else "style_light.qss"
-    return files(__package__).joinpath(filename).read_text(encoding="utf-8")
+    raw = files(__package__).joinpath(filename).read_text(encoding="utf-8")
+    return raw.replace("{accent_hover}", _accent_hover(accent, theme)).replace(
+        "{accent}", accent_color(accent, theme)
+    )
 
 
 def _icon_svg_bytes(name: str) -> bytes:

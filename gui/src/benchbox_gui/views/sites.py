@@ -20,8 +20,10 @@ from PySide6.QtWidgets import (
 )
 
 from benchbox_gui.widgets.bench_summary_card import BenchSummaryCard, SiteRow
+from benchbox_gui.widgets.busy_label import BusyLabel
 from benchbox_gui.widgets.card_grid import CardGrid
 from benchbox_gui.widgets.kpi_card import KpiCard
+from benchbox_gui.workers import OperationWorker
 
 ALL_BENCHES = "__all__"
 
@@ -40,6 +42,7 @@ class SitesView(QWidget):
         self._bench_paths: list[Path] = []
         self._filter: str = ""
         self._bench_filter: str = ALL_BENCHES
+        self._load_worker: OperationWorker | None = None
 
         title = QLabel("Sites")
         title.setProperty("role", "h1")
@@ -50,9 +53,9 @@ class SitesView(QWidget):
         subtitle.setProperty("role", "dim")
         subtitle.setWordWrap(True)
 
-        refresh = QPushButton("Refresh")
-        refresh.setProperty("role", "ghost")
-        refresh.clicked.connect(self.refresh)
+        self._refresh_btn = QPushButton("Refresh")
+        self._refresh_btn.setProperty("role", "ghost")
+        self._refresh_btn.clicked.connect(self.refresh)
 
         header_text = QVBoxLayout()
         header_text.setSpacing(2)
@@ -61,7 +64,7 @@ class SitesView(QWidget):
 
         header = QHBoxLayout()
         header.addLayout(header_text, 1)
-        header.addWidget(refresh, 0, Qt.AlignmentFlag.AlignTop)
+        header.addWidget(self._refresh_btn, 0, Qt.AlignmentFlag.AlignTop)
 
         self._kpi_benches = KpiCard("Benches", value="0", accent="#bd93f9")
         self._kpi_sites = KpiCard("Sites", value="0", accent="#8be9fd")
@@ -111,6 +114,14 @@ class SitesView(QWidget):
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty.setWordWrap(True)
 
+        # Async "Loading sites…" indicator. The introspect loop walks every
+        # bench's apps + sites trees, which can take seconds on a slow disk
+        # — we don't want the GUI thread blocked while it does.
+        self._loading = BusyLabel()
+        self._loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading.setProperty("role", "dim")
+        self._loading.setVisible(False)
+
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(14)
@@ -119,6 +130,7 @@ class SitesView(QWidget):
         root.addWidget(self._filter_bar)
         root.addWidget(self._scroll, 1)
         root.addWidget(self._empty)
+        root.addWidget(self._loading)
 
         self.refresh()
 
@@ -127,7 +139,34 @@ class SitesView(QWidget):
         return sum(c.row_count() for c in self._summary_cards())
 
     def refresh(self) -> None:
-        bench_cache = {p: introspect.introspect(p) for p in discovery.discover_benches()}
+        if self._load_worker is not None and self._load_worker.isRunning():
+            return
+
+        self._show_loading()
+
+        def op() -> dict[Path, introspect.BenchInfo]:
+            return {p: introspect.introspect(p) for p in discovery.discover_benches()}
+
+        self._load_worker = OperationWorker(op)
+        self._load_worker.succeeded.connect(self._on_load_succeeded)
+        self._load_worker.failed.connect(self._on_load_failed)
+        self._load_worker.start()
+
+    def _show_loading(self) -> None:
+        self._refresh_btn.setEnabled(False)
+        self._scroll.setVisible(False)
+        self._empty.setVisible(False)
+        self._loading.setVisible(True)
+        self._loading.set_busy("Loading sites")
+
+    def _hide_loading(self) -> None:
+        self._loading.set_idle("")
+        self._loading.setVisible(False)
+        self._refresh_btn.setEnabled(True)
+
+    def _on_load_succeeded(self, result: object) -> None:
+        self._hide_loading()
+        bench_cache = result if isinstance(result, dict) else {}
         self._bench_paths = sorted(bench_cache.keys(), key=lambda p: str(p).lower())
         self._rows = [
             _Row(bench_path=info.path, site=site)
@@ -137,6 +176,25 @@ class SitesView(QWidget):
         self._refresh_kpis()
         self._refresh_bench_combo()
         self._render()
+
+    def _on_load_failed(self, exc: object) -> None:
+        self._hide_loading()
+        self._bench_paths = []
+        self._rows = []
+        self._refresh_kpis()
+        self._refresh_bench_combo()
+        self._render()
+        self._empty.setText(
+            f"<p>Could not load sites.</p>"
+            f"<p style='color:#a9a9c4;'>{exc}</p>"
+        )
+        self._empty.setVisible(True)
+        self._scroll.setVisible(False)
+
+    def shutdown(self) -> None:
+        if self._load_worker is not None and self._load_worker.isRunning():
+            self._load_worker.quit()
+            self._load_worker.wait(2000)
 
     def _summary_cards(self) -> list[BenchSummaryCard]:
         return self._grid.findChildren(BenchSummaryCard)

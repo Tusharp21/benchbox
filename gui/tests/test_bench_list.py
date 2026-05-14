@@ -10,6 +10,8 @@ from benchbox_gui.services.bench_processes import BenchProcessManager
 from benchbox_gui.views.bench_list import BenchListView
 from benchbox_gui.widgets.bench_card import BenchCard
 
+from .conftest import await_initial_load
+
 
 def _make_bench(path: Path) -> None:
     (path / "apps" / "frappe" / "frappe").mkdir(parents=True, exist_ok=True)
@@ -43,6 +45,7 @@ def test_bench_list_renders_discovered_benches(
 
     view = BenchListView(manager)
     qtbot.addWidget(view)
+    await_initial_load(qtbot, view)
 
     assert view.card_count == 2
     cards = view.findChildren(BenchCard)
@@ -55,6 +58,7 @@ def test_bench_list_empty_state(
     monkeypatch.setattr("benchbox_gui.views.bench_list.discovery.discover_benches", lambda **kw: [])
     view = BenchListView(manager)
     qtbot.addWidget(view)
+    await_initial_load(qtbot, view)
 
     assert view._scroll.isHidden() is True  # noqa: SLF001
     assert view._empty.isHidden() is False  # noqa: SLF001
@@ -76,6 +80,7 @@ def test_bench_card_emits_opened_with_path(
 
     view = BenchListView(manager)
     qtbot.addWidget(view)
+    await_initial_load(qtbot, view)
 
     card = view.findChild(BenchCard)
     assert card is not None
@@ -104,6 +109,7 @@ def test_bench_list_search_filters_visible_cards(
 
     view = BenchListView(manager)
     qtbot.addWidget(view)
+    await_initial_load(qtbot, view)
     view.show()  # isHidden() needs real visibility state
 
     # No filter → all visible.
@@ -138,6 +144,7 @@ def test_bench_list_card_flips_running_chip_on_manager_signals(
 
     view = BenchListView(manager)
     qtbot.addWidget(view)
+    await_initial_load(qtbot, view)
     card = view.findChild(BenchCard)
     assert card is not None
     assert card._running_chip.isVisible() is False  # noqa: SLF001
@@ -200,6 +207,7 @@ def test_bench_list_running_only_filter_hides_stopped(
 
     view = BenchListView(manager)
     qtbot.addWidget(view)
+    await_initial_load(qtbot, view)
 
     cards = {c.bench_path: c for c in view.findChildren(BenchCard)}
     assert len(cards) == 2

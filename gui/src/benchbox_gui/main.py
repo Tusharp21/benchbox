@@ -16,7 +16,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("benchbox")
     app.setOrganizationName("benchbox")
-    app.setStyleSheet(stylesheet(preferences.get_theme()))
+    app.setStyleSheet(stylesheet(preferences.get_theme(), preferences.get_accent()))
 
     window = MainWindow()
     # closeEvent covers the X button; aboutToQuit covers signals, dock-quit,

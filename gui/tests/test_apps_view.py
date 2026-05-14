@@ -12,6 +12,8 @@ from benchbox_gui.views.apps import AppsView
 from benchbox_gui.widgets.app_card import FRAPPE_APP_NAME, AppCard
 from benchbox_gui.widgets.bench_summary_card import AppRow, BenchSummaryCard
 
+from .conftest import await_initial_load
+
 
 def _make_bench_with_app(
     bench_path: Path, app_name: str, version: str = "1.0.0", branch: str = "main"
@@ -97,6 +99,7 @@ def test_apps_view_renders_one_card_per_app(
 
     view = AppsView()
     qtbot.addWidget(view)
+    await_initial_load(qtbot, view)
 
     # 3 apps expected: frappe + erpnext + hrms.
     assert view.card_count == 3
@@ -112,6 +115,7 @@ def test_apps_view_empty_state(qtbot: QtBot, monkeypatch: pytest.MonkeyPatch) ->
 
     view = AppsView()
     qtbot.addWidget(view)
+    await_initial_load(qtbot, view)
 
     assert view.card_count == 0
     assert view._scroll.isHidden() is True  # noqa: SLF001

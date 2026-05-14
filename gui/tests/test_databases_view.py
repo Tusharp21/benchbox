@@ -10,6 +10,8 @@ from pytestqt.qtbot import QtBot
 
 from benchbox_gui.views.databases import DatabasesView
 
+from .conftest import await_initial_load as _await_initial_load
+
 
 @pytest.fixture
 def saved_password(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -37,6 +39,7 @@ def test_view_renders_one_row_per_database(
 
     view = DatabasesView()
     qtbot.addWidget(view)
+    _await_initial_load(qtbot, view)
 
     assert view.row_count == 3
 
@@ -49,6 +52,7 @@ def test_view_filters_by_status(
 
     view = DatabasesView()
     qtbot.addWidget(view)
+    _await_initial_load(qtbot, view)
 
     # Pick "Orphan only"
     idx = view._status_combo.findData("orphan")  # noqa: SLF001
@@ -70,6 +74,7 @@ def test_view_text_filter_matches_name_site_or_bench(
 
     view = DatabasesView()
     qtbot.addWidget(view)
+    _await_initial_load(qtbot, view)
 
     view._search.setText("shop")  # noqa: SLF001
     assert view.row_count == 1
@@ -91,6 +96,7 @@ def test_view_drop_button_disabled_for_allocated(
 
     view = DatabasesView()
     qtbot.addWidget(view)
+    _await_initial_load(qtbot, view)
 
     drop_states: dict[str, bool] = {}
     for r in range(view.row_count):
@@ -128,6 +134,7 @@ def test_view_shows_notice_on_query_failure(
     monkeypatch.setattr(core_database, "list_databases", raise_error)
     view = DatabasesView()
     qtbot.addWidget(view)
+    _await_initial_load(qtbot, view)
 
     assert view.row_count == 0
     assert view._notice.isHidden() is False  # noqa: SLF001

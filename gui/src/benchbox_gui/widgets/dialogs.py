@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from benchbox_gui.widgets.busy_label import BusyLabel
 from benchbox_gui.workers import StreamingOpWorker
 
 # --- LiveLogDialog (shared base for any op that wants live output) ----
@@ -57,7 +58,7 @@ class LiveLogDialog(QDialog):
 
         self._form_holder = QWidget()  # placeholder; subclass replaces via set_form_layout
 
-        self._status = QLabel()
+        self._status = BusyLabel()
         self._status.setProperty("role", "dim")
         self._status.setVisible(False)
 
@@ -140,9 +141,9 @@ class LiveLogDialog(QDialog):
         self._form_holder.setEnabled(False)
         self._log.setVisible(True)
         self._status.setVisible(True)
-        self._status.setText(self._running_text())
+        self._status.set_busy(self._running_text())
         self._primary.setEnabled(False)
-        self._primary.setText("Working…")
+        self._primary.setText("Working")
         self._cancel.setEnabled(False)
 
         op = self._build_op(values)
@@ -156,13 +157,13 @@ class LiveLogDialog(QDialog):
         self._log.appendPlainText(line.rstrip("\n"))
 
     def _on_succeeded(self, _result: object) -> None:
-        self._status.setText(self._success_text())
+        self._status.set_idle(self._success_text())
         self._primary.setText("Close")
         self._primary.setEnabled(True)
         self._cancel.setVisible(False)
 
     def _on_failed(self, exc: object) -> None:
-        self._status.setText(f"Failed: {exc}")
+        self._status.set_idle(f"Failed: {exc}")
         self._primary.setText("Close")
         self._primary.setEnabled(True)
         # On failure the primary button rejects so the caller skips its refresh.

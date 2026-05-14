@@ -28,6 +28,29 @@ def test_set_theme_rejects_unknown_value() -> None:
         preferences.set_theme("sepia")  # type: ignore[arg-type]
 
 
+def test_default_accent_when_unset() -> None:
+    assert preferences.get_accent() == "purple"
+
+
+def test_set_then_get_roundtrips_accent() -> None:
+    preferences.set_accent("green")
+    assert preferences.get_accent() == "green"
+    preferences.set_accent("blue")
+    assert preferences.get_accent() == "blue"
+
+
+def test_set_accent_rejects_unknown_value() -> None:
+    with pytest.raises(ValueError):
+        preferences.set_accent("magenta")  # type: ignore[arg-type]
+
+
+def test_theme_and_accent_persist_independently() -> None:
+    preferences.set_theme("light")
+    preferences.set_accent("red")
+    assert preferences.get_theme() == "light"
+    assert preferences.get_accent() == "red"
+
+
 def test_preferences_file_stays_valid_json(tmp_path: Path) -> None:
     preferences.set_theme("light")
     import json

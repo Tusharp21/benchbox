@@ -8,7 +8,7 @@
  *   bg3        #d0d7de  borders
  *   text       #1f2328  primary text
  *   textDim    #656d76  secondary text
- *   accent     #8250df  purple
+ *   accent     {accent}  user-selectable accent
  *   accent2    #1a7f37  green
  *   danger     #cf222e  red
  */
@@ -45,7 +45,7 @@ QLabel[role="dim"] {
 }
 QLabel[role="kbd"] {
     background-color: #f6f8fa;
-    color: #6f42c1;
+    color: {accent_hover};
     padding: 2px 6px;
     border-radius: 4px;
     font-family: "JetBrains Mono", "Fira Code", "Courier New", monospace;
@@ -74,7 +74,7 @@ QListWidget#Sidebar::item:hover {
 QListWidget#Sidebar::item:selected {
     background-color: #ffffff;
     color: #1f2328;
-    border-left: 3px solid #8250df;
+    border-left: 3px solid {accent};
 }
 
 /* ---------- stats banner ---------- */
@@ -133,9 +133,9 @@ QTabWidget#BenchDetailTabs > QTabBar::tab:hover {
     border-top-right-radius: 8px;
 }
 QTabWidget#BenchDetailTabs > QTabBar::tab:selected {
-    color: #6f42c1;
+    color: {accent_hover};
     font-weight: 700;
-    border-bottom: 2px solid #6f42c1;
+    border-bottom: 2px solid {accent_hover};
     background-color: #f6f8fa;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
@@ -195,7 +195,7 @@ QFrame#Card, QFrame#BenchCard, QFrame#SiteCard, QFrame#AppCard {
 }
 QFrame#BenchCard:hover, QFrame#SiteCard:hover, QFrame#AppCard:hover {
     background-color: #f6f8fa;
-    border: 1px solid #8250df;
+    border: 1px solid {accent};
 }
 
 QLabel[role="badge"] {
@@ -206,7 +206,7 @@ QLabel[role="badge"] {
     font-size: 10pt;
 }
 QLabel[role="badge-accent"] {
-    background-color: #8250df;
+    background-color: {accent};
     color: #ffffff;
     padding: 3px 10px;
     border-radius: 10px;
@@ -244,13 +244,13 @@ QPushButton:disabled {
     border-color: #eaeef2;
 }
 QPushButton[role="primary"] {
-    background-color: #8250df;
+    background-color: {accent};
     color: #ffffff;
     border: none;
     font-weight: 600;
 }
 QPushButton[role="primary"]:hover {
-    background-color: #6f42c1;
+    background-color: {accent_hover};
 }
 QPushButton[role="danger"] {
     background-color: #cf222e;
@@ -312,7 +312,7 @@ QLineEdit, QComboBox, QSpinBox {
     selection-background-color: #ddf4ff;
 }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
-    border: 1px solid #8250df;
+    border: 1px solid {accent};
 }
 QLineEdit:disabled, QComboBox:disabled {
     background-color: #f6f8fa;
@@ -341,11 +341,11 @@ QCheckBox::indicator {
     border-radius: 3px;
 }
 QCheckBox::indicator:hover {
-    border-color: #8250df;
+    border-color: {accent};
 }
 QCheckBox::indicator:checked {
-    background-color: #8250df;
-    border-color: #8250df;
+    background-color: {accent};
+    border-color: {accent};
 }
 
 /* ---------- progress ---------- */
@@ -359,7 +359,7 @@ QProgressBar {
     color: transparent;
 }
 QProgressBar::chunk {
-    background-color: #8250df;
+    background-color: {accent};
     border-radius: 4px;
 }
 
@@ -469,7 +469,7 @@ QTableWidget#DatabasesTable::item:hover {
 QTableWidget#DatabasesTable::item:selected {
     background-color: #f6f3ff;
     color: #1f2328;
-    border-left: 3px solid #8250df;
+    border-left: 3px solid {accent};
 }
 QTableWidget#DatabasesTable QHeaderView::section {
     background-color: #f6f8fa;
