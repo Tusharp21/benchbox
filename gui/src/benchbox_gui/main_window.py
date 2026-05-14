@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from benchbox_core import preferences
@@ -20,15 +21,8 @@ from PySide6.QtWidgets import (
 
 from benchbox_gui.resources import icon, stylesheet
 from benchbox_gui.services.bench_processes import BenchProcessManager
-from benchbox_gui.views.apps import AppsView
 from benchbox_gui.views.bench_detail import BenchDetailView
 from benchbox_gui.views.bench_list import BenchListView
-from benchbox_gui.views.databases import DatabasesView
-from benchbox_gui.views.docs_view import DocumentationView
-from benchbox_gui.views.install import InstallerView
-from benchbox_gui.views.logs_view import LogsView
-from benchbox_gui.views.settings_view import SettingsView
-from benchbox_gui.views.sites import SitesView
 from benchbox_gui.views.stats_banner import StatsBanner
 
 # (label, page key, icon name)
@@ -58,24 +52,36 @@ class MainWindow(QMainWindow):
 
         self._stack = QStackedWidget()
         self._pages: dict[str, int] = {}
+        # Lazy page construction — the heavy views (Sites/Apps/Databases/Install/
+        # docs) each spawn subprocesses or warm DB connections on first build,
+        # so we only build them on first sidebar click. Cuts startup RAM/CPU.
+        self._page_factories: dict[str, Callable[[], QWidget]] = {
+            "install": self._build_installer,
+            "sites": self._build_lazy("benchbox_gui.views.sites", "SitesView"),
+            "apps": self._build_lazy("benchbox_gui.views.apps", "AppsView"),
+            "databases": self._build_lazy(
+                "benchbox_gui.views.databases", "DatabasesView"
+            ),
+            "logs": self._build_lazy("benchbox_gui.views.logs_view", "LogsView"),
+            "docs": self._build_lazy(
+                "benchbox_gui.views.docs_view", "DocumentationView"
+            ),
+            "settings": self._build_lazy(
+                "benchbox_gui.views.settings_view", "SettingsView"
+            ),
+        }
 
+        # Benches is the default landing page, so build it eagerly.
         self._bench_list = BenchListView(self._process_manager)
-        self._bench_detail = BenchDetailView(self._process_manager)
-        self._installer = InstallerView()
-
         self._bench_list.bench_selected.connect(self._on_bench_selected)
-        self._bench_detail.back_requested.connect(lambda: self._show_page("benches"))
+        self._pages["benches"] = self._stack.addWidget(self._bench_list)
 
-        self._register_page("benches", self._bench_list)
-        self._register_page("install", self._installer)
-        self._register_page("sites", SitesView())
-        self._register_page("apps", AppsView())
-        self._register_page("databases", DatabasesView())
-        self._register_page("logs", LogsView())
-        self._register_page("docs", DocumentationView())
-        self._register_page("settings", SettingsView())
-        # Detail view isn't in the sidebar; it sits behind the Benches list.
-        self._bench_detail_index = self._stack.addWidget(self._bench_detail)
+        # Detail view is lazy: built on the first bench card click.
+        self._bench_detail: BenchDetailView | None = None
+        self._bench_detail_index: int | None = None
+        # Installer is lazy: only constructed on first Install-tab click. The
+        # reference is kept so shutdown can still ping it.
+        self._installer = None  # type: ignore[var-annotated]
 
         self._sidebar = QListWidget()
         self._sidebar.setObjectName("Sidebar")
@@ -110,10 +116,13 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------
 
-    def _register_page(self, key: str, widget: QWidget) -> None:
-        self._pages[key] = self._stack.addWidget(widget)
-
     def _show_page(self, key: str) -> None:
+        if key not in self._pages:
+            factory = self._page_factories.get(key)
+            if factory is None:
+                return
+            widget = factory()
+            self._pages[key] = self._stack.addWidget(widget)
         self._stack.setCurrentIndex(self._pages[key])
 
     def _on_sidebar_row_changed(self, row: int) -> None:
@@ -121,8 +130,37 @@ class MainWindow(QMainWindow):
             self._show_page(_SIDEBAR_ENTRIES[row][1])
 
     def _on_bench_selected(self, path: Path) -> None:
+        if self._bench_detail is None:
+            self._bench_detail = BenchDetailView(self._process_manager)
+            self._bench_detail.back_requested.connect(
+                lambda: self._show_page("benches")
+            )
+            self._bench_detail_index = self._stack.addWidget(self._bench_detail)
         self._bench_detail.load(path)
+        assert self._bench_detail_index is not None
         self._stack.setCurrentIndex(self._bench_detail_index)
+
+    @staticmethod
+    def _build_lazy(module: str, attr: str) -> Callable[[], QWidget]:
+        """Return a factory that imports `module.attr` on first call.
+
+        Deferring the import as well as the construction keeps PySide6 widget
+        modules (and their transitive deps like psutil for the dashboard
+        views) out of startup.
+        """
+
+        def factory() -> QWidget:
+            mod = __import__(module, fromlist=[attr])
+            cls = getattr(mod, attr)
+            return cls()
+
+        return factory
+
+    def _build_installer(self) -> QWidget:
+        from benchbox_gui.views.install import InstallerView
+
+        self._installer = InstallerView()
+        return self._installer
 
     # --- theme -------------------------------------------------------
 
@@ -148,6 +186,8 @@ class MainWindow(QMainWindow):
     def shutdown_processes(self) -> None:
         self._process_manager.stop_all()
         for view in (self._bench_detail, self._installer):
+            if view is None:
+                continue
             shutdown = getattr(view, "shutdown", None)
             if callable(shutdown):
                 shutdown()

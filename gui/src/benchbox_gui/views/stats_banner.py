@@ -15,6 +15,9 @@ DEFAULT_POLL_MS: int = 2000
 # rarely changes during a session — refresh every Nth tick rather than
 # every tick.
 _NODE_REFRESH_EVERY: int = 15
+# Service state (systemctl is-active) is shell-out per service per tick.
+# It almost never changes during a session — re-probe every ~30s.
+_SERVICE_REFRESH_EVERY: int = 15
 
 # Service-pill accents; theme-agnostic on purpose — active-green works on
 # both backgrounds.
@@ -37,6 +40,8 @@ class StatsBanner(QWidget):
         self._redis = StatPill("redis")
         self._node_tick: int = 0
         self._node_version: str | None = None
+        self._service_tick: int = 0
+        self._cached_services: list[stats.ServiceStatus] = []
 
         self._theme_btn = QPushButton()
         self._theme_btn.setObjectName("ThemeToggle")
@@ -80,7 +85,22 @@ class StatsBanner(QWidget):
         self.theme_toggled.emit(new_theme)
 
     def refresh(self) -> None:
-        snap = stats.snapshot(cpu_interval=None)
+        # Skip the systemctl shellouts on most ticks and reuse the cached
+        # service states. They change rarely; this halves the per-tick
+        # subprocess load.
+        if self._service_tick == 0:
+            snap = stats.snapshot(cpu_interval=None)
+            self._cached_services = list(snap.services)
+        else:
+            partial = stats.snapshot(cpu_interval=None, services=())
+            snap = stats.SystemStats(
+                cpu_percent=partial.cpu_percent,
+                memory=partial.memory,
+                disk=partial.disk,
+                services=self._cached_services,
+            )
+        self._service_tick = (self._service_tick + 1) % _SERVICE_REFRESH_EVERY
+
         self._cpu.set_value(f"{snap.cpu_percent:.1f}%")
 
         mem = snap.memory
