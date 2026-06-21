@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from benchbox_core.installer._run import CommandRunner
 from benchbox_core.installer._types import (
@@ -22,6 +24,10 @@ def _dpkg_installed(runner: CommandRunner, package: str) -> bool:
     if not result.executed or result.returncode != 0:
         return False
     return result.stdout.strip() == "install ok installed"
+
+
+def _local_bin_on_path(local_bin: Path) -> bool:
+    return str(local_bin) in os.environ.get("PATH", "").split(os.pathsep)
 
 
 def _pipx_has_bench(runner: CommandRunner) -> bool:
@@ -76,15 +82,21 @@ class BenchCliComponent:
                 )
             )
 
-        # ``pipx ensurepath`` is idempotent by design and cheap, so we run it
-        # unconditionally. It's the only way to be sure the user's shell will
-        # pick up ~/.local/bin on their next login.
-        steps.append(
-            Step(
-                description="ensure ~/.local/bin is on PATH for future shells",
-                command=("pipx", "ensurepath"),
+        if _local_bin_on_path(Path.home() / ".local" / "bin"):
+            steps.append(
+                Step(
+                    description="~/.local/bin already on PATH",
+                    command=(),
+                    skip_reason="path already ensured",
+                )
             )
-        )
+        else:
+            steps.append(
+                Step(
+                    description="ensure ~/.local/bin is on PATH for future shells",
+                    command=("pipx", "ensurepath"),
+                )
+            )
 
         if pipx_installed and _pipx_has_bench(self.probe_runner):
             steps.append(

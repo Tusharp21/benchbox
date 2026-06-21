@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from benchbox_core.installer._run import CommandResult, CommandRunner
-
-if TYPE_CHECKING:
-    from pathlib import Path
 from benchbox_core.installer.bench_cli import (
     FRAPPE_BENCH_PIPX_NAME,
     PIPX_PACKAGE,
@@ -55,7 +52,8 @@ class FakeProbeRunner(CommandRunner):
         raise AssertionError(f"unexpected probe command: {argv}")
 
 
-def test_plan_fresh_emits_full_sequence() -> None:
+def test_plan_fresh_emits_full_sequence(monkeypatch) -> None:
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
     component = BenchCliComponent(probe_runner=FakeProbeRunner())
     plan = component.plan()
 
@@ -103,15 +101,28 @@ def test_plan_still_installs_bench_when_pipx_list_fails() -> None:
     assert bench_install_step.skip_reason is None
 
 
-def test_plan_ensurepath_runs_unconditionally() -> None:
-    # pipx already there, bench already there — ensurepath should still show
-    # up because it's cheap and idempotent.
+def test_plan_ensurepath_skipped_when_path_already_set(monkeypatch) -> None:
+    # pipx, bench, and PATH are all already in place — plan() must report
+    # zero runnable steps so GUI/CLI probes correctly see this as installed.
+    home = Path.home()
+    local_bin = str(home / ".local" / "bin")
+    monkeypatch.setenv("PATH", f"{local_bin}:/usr/bin")
     component = BenchCliComponent(
         probe_runner=FakeProbeRunner(
             installed_packages={PIPX_PACKAGE},
             pipx_venvs={FRAPPE_BENCH_PIPX_NAME},
         )
     )
+    plan = component.plan()
+
+    assert plan.runnable_steps == ()
+    ensurepath_step = next(s for s in plan.steps if "PATH" in s.description)
+    assert ensurepath_step.skip_reason is not None
+
+
+def test_plan_ensurepath_runs_when_path_missing(monkeypatch) -> None:
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    component = BenchCliComponent(probe_runner=FakeProbeRunner())
     plan = component.plan()
 
     ensurepath_step = next(s for s in plan.steps if "ensure ~/.local/bin" in s.description)
